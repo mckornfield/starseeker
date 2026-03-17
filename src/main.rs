@@ -3,6 +3,7 @@ use macroquad::prelude::*;
 mod entities;
 mod game;
 mod input;
+mod items;
 mod mobile;
 mod player;
 mod projectile;

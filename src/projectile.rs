@@ -1,6 +1,5 @@
 use macroquad::prelude::*;
 
-pub const PROJECTILE_SPEED: f32 = 600.0;
 const LIFETIME: f32 = 2.0;
 const RADIUS: f32 = 3.0;
 
@@ -16,26 +15,29 @@ pub struct Projectile {
     pub lifetime: f32,
     pub color: Color,
     pub owner: Owner,
+    pub damage: f32,
 }
 
 impl Projectile {
-    pub fn new(pos: Vec2, direction: Vec2, color: Color) -> Self {
+    pub fn new(pos: Vec2, direction: Vec2, speed: f32, damage: f32, color: Color) -> Self {
         Self {
             pos,
-            vel: direction * PROJECTILE_SPEED,
+            vel: direction * speed,
             lifetime: LIFETIME,
             color,
             owner: Owner::Player,
+            damage,
         }
     }
 
     pub fn new_enemy(pos: Vec2, direction: Vec2, color: Color) -> Self {
         Self {
             pos,
-            vel: direction * (PROJECTILE_SPEED * 0.65),
+            vel: direction * 390.0,
             lifetime: LIFETIME * 1.2,
             color,
             owner: Owner::Enemy,
+            damage: 15.0,
         }
     }
 
