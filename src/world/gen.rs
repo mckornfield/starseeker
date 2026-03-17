@@ -1,5 +1,6 @@
 use macroquad::prelude::*;
 use crate::entities::asteroid::Asteroid;
+use crate::entities::enemy::EnemyArchetype;
 use crate::entities::planet::Planet;
 use super::chunk::{Chunk, ChunkCoord, ChunkType, StarPoint, CHUNK_SIZE};
 
@@ -85,6 +86,7 @@ pub fn gen_chunk(cx: i32, cy: i32) -> Chunk {
     let stars = gen_stars(&mut rng, origin, &chunk_type);
     let bg_blobs = gen_bg_blobs(&mut rng, origin, &chunk_type);
     let asteroids = gen_asteroids(&mut rng, origin, hostility, &chunk_type);
+    let enemy_spawns = gen_enemy_spawns(&mut rng, origin, hostility, &chunk_type);
 
     Chunk {
         coord: ChunkCoord { cx, cy },
@@ -94,6 +96,7 @@ pub fn gen_chunk(cx: i32, cy: i32) -> Chunk {
         bg_blobs,
         asteroids,
         planet,
+        enemy_spawns,
     }
 }
 
@@ -244,4 +247,39 @@ fn gen_planet_name(rng: &mut ChunkRng) -> String {
     } else {
         base
     }
+}
+
+fn gen_enemy_spawns(
+    rng: &mut ChunkRng,
+    origin: Vec2,
+    hostility: f32,
+    chunk_type: &ChunkType,
+) -> Vec<(Vec2, EnemyArchetype)> {
+    // No enemies near planets; derelicts are extra dangerous
+    let count = match chunk_type {
+        ChunkType::HasPlanet => return vec![],
+        ChunkType::Derelict => (rng.range_f32(2.0, 5.0)) as usize,
+        _ => {
+            if hostility < 0.2 {
+                return vec![];
+            }
+            (hostility * 4.0 + rng.range_f32(-1.0, 1.0)).max(0.0) as usize
+        }
+    };
+
+    (0..count)
+        .map(|_| {
+            let pos = origin
+                + Vec2::new(
+                    rng.range_f32(150.0, CHUNK_SIZE - 150.0),
+                    rng.range_f32(150.0, CHUNK_SIZE - 150.0),
+                );
+            let archetype = match rng.range_usize(3) {
+                0 => EnemyArchetype::Tank,
+                1 => EnemyArchetype::Agile,
+                _ => EnemyArchetype::Ranged,
+            };
+            (pos, archetype)
+        })
+        .collect()
 }

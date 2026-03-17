@@ -1,5 +1,6 @@
 use macroquad::prelude::*;
 use crate::entities::asteroid::Asteroid;
+use crate::entities::enemy::EnemyArchetype;
 use crate::entities::planet::Planet;
 
 pub const CHUNK_SIZE: f32 = 3200.0;
@@ -41,6 +42,8 @@ pub struct Chunk {
     pub bg_blobs: Vec<(Vec2, f32, Color)>,
     pub asteroids: Vec<Asteroid>,
     pub planet: Option<Planet>,
+    /// Enemy spawn specs — drained once by the World into its spawn queue
+    pub enemy_spawns: Vec<(Vec2, EnemyArchetype)>,
 }
 
 impl Chunk {

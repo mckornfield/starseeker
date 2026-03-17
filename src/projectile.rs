@@ -4,11 +4,18 @@ pub const PROJECTILE_SPEED: f32 = 600.0;
 const LIFETIME: f32 = 2.0;
 const RADIUS: f32 = 3.0;
 
+#[derive(PartialEq, Clone, Copy)]
+pub enum Owner {
+    Player,
+    Enemy,
+}
+
 pub struct Projectile {
     pub pos: Vec2,
     pub vel: Vec2,
     pub lifetime: f32,
     pub color: Color,
+    pub owner: Owner,
 }
 
 impl Projectile {
@@ -18,6 +25,17 @@ impl Projectile {
             vel: direction * PROJECTILE_SPEED,
             lifetime: LIFETIME,
             color,
+            owner: Owner::Player,
+        }
+    }
+
+    pub fn new_enemy(pos: Vec2, direction: Vec2, color: Color) -> Self {
+        Self {
+            pos,
+            vel: direction * (PROJECTILE_SPEED * 0.65),
+            lifetime: LIFETIME * 1.2,
+            color,
+            owner: Owner::Enemy,
         }
     }
 
@@ -30,12 +48,12 @@ impl Projectile {
 
     pub fn draw(&self) {
         draw_circle(self.pos.x, self.pos.y, RADIUS, self.color);
-        // Faint trail dot
+        let trail = self.pos - self.vel.normalize() * 6.0;
         draw_circle(
-            self.pos.x - self.vel.normalize().x * 6.0,
-            self.pos.y - self.vel.normalize().y * 6.0,
+            trail.x,
+            trail.y,
             RADIUS * 0.5,
-            Color::new(self.color.r, self.color.g, self.color.b, 0.4),
+            Color::new(self.color.r, self.color.g, self.color.b, 0.35),
         );
     }
 }
