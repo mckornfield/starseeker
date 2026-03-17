@@ -84,7 +84,7 @@ impl Game {
             GRAY,
         );
         draw_text(
-            "W/↑ Thrust   A/D Rotate   Space Main   Ctrl/Z Aux",
+            "W/↑ Thrust   S/↓ Brake   A/D Rotate   Space Main   Ctrl/Z Aux",
             pad,
             screen_height() - pad,
             13.0,

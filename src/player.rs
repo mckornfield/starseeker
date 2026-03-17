@@ -2,9 +2,9 @@ use macroquad::prelude::*;
 use crate::projectile::Projectile;
 
 const ROTATION_SPEED: f32 = 3.0;   // rad/s
-const THRUST: f32 = 280.0;         // units/s²
-const DRAG: f32 = 0.97;
-const MAX_SPEED: f32 = 420.0;
+const THRUST: f32 = 320.0;         // units/s²
+const DRAG: f32 = 0.999;           // near-frictionless; Asteroids-style momentum
+const MAX_SPEED: f32 = 650.0;
 
 // Fire rates (seconds between shots per slot)
 const MAIN_FIRE_RATE: f32 = 0.18;
@@ -41,10 +41,12 @@ impl Player {
             self.rotation += ROTATION_SPEED * dt;
         }
 
-        // Thrust (forward only for now; reverse thruster in Phase 2)
         let forward = Vec2::new(self.rotation.sin(), -self.rotation.cos());
         if is_key_down(KeyCode::Up) || is_key_down(KeyCode::W) {
             self.vel += forward * THRUST * dt;
+        }
+        if is_key_down(KeyCode::Down) || is_key_down(KeyCode::S) {
+            self.vel -= forward * THRUST * dt;
         }
 
         // Drag + speed cap
