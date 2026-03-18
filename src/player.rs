@@ -13,6 +13,7 @@ pub(crate) struct Player {
     pub vel: Vec2,
     pub rotation: f32, // radians; 0 = pointing up
     pub is_thrusting: bool,
+    pub is_braking: bool,
     pub is_stabilizing: bool,
     pub loadout: Loadout,
 
@@ -27,6 +28,7 @@ impl Player {
             vel: Vec2::ZERO,
             rotation: 0.0,
             is_thrusting: false,
+            is_braking: false,
             is_stabilizing: false,
             loadout: Loadout::starter(),
             main_cooldown: 0.0,
@@ -52,6 +54,7 @@ impl Player {
 
         let forward = Vec2::new(self.rotation.sin(), -self.rotation.cos());
         self.is_thrusting = input.thrust;
+        self.is_braking = input.brake;
         self.is_stabilizing = input.stabilize && self.vel.length_squared() > 1.0;
 
         // Thruster stats
@@ -150,6 +153,12 @@ impl Player {
             };
             draw_circle(exhaust.x, exhaust.y, 5.0, outer);
             draw_circle(exhaust.x, exhaust.y, 3.0, inner);
+        }
+
+        if self.is_braking {
+            let exhaust = self.pos + forward * (size * 0.85);
+            draw_circle(exhaust.x, exhaust.y, 3.0, ORANGE);
+            draw_circle(exhaust.x, exhaust.y, 1.8, YELLOW);
         }
 
         if self.is_stabilizing {

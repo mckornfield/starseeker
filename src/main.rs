@@ -4,6 +4,7 @@ mod entities;
 mod game;
 mod input;
 mod items;
+mod missions;
 mod mobile;
 mod player;
 mod projectile;

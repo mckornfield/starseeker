@@ -122,6 +122,14 @@ impl World {
         }
     }
 
+    /// Collect names of all planets in currently loaded chunks.
+    pub fn known_planet_names(&self) -> Vec<String> {
+        self.chunks
+            .values()
+            .filter_map(|c| c.planet.as_ref().map(|p| p.name.clone()))
+            .collect()
+    }
+
     fn unload_distant(&mut self) {
         let (pcx, pcy) = self.player_chunk;
         self.chunks

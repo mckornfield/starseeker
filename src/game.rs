@@ -2,6 +2,7 @@ use crate::entities::enemy::Enemy;
 use crate::entities::loot::{LootDrop, LootKind, PICKUP_RANGE};
 use crate::input::InputState;
 use crate::items::{ThrusterItem, WeaponItem};
+use crate::missions::{self, MenuTab, MissionLog, PlanetMenu};
 use crate::mobile::MobileOverlay;
 use crate::player::Player;
 use crate::projectile::{Owner, Projectile};
@@ -38,11 +39,13 @@ pub(crate) struct Game {
     dead: bool,
     death_timer: f32,
 
+    mission_log: MissionLog,
+
     camera: Camera2D,
     world: World,
     mobile: MobileOverlay,
 
-    planet_menu: Option<String>,
+    planet_menu: Option<PlanetMenu>,
     prev_interact: bool,
 }
 
@@ -63,6 +66,8 @@ impl Game {
             damage_flash: 0.0,
             dead: false,
             death_timer: 0.0,
+
+            mission_log: MissionLog::new(),
 
             camera: Camera2D {
                 zoom: vec2(1.0 / 640.0, 1.0 / 360.0),
@@ -111,12 +116,77 @@ impl Game {
             if self.planet_menu.is_some() {
                 self.planet_menu = None;
             } else if let Some(name) = self.world.nearby_planet_name(self.player.pos) {
-                self.planet_menu = Some(name.to_string());
+                // Notify visit-mission tracking
+                if let Some(msg) = self.mission_log.notify_visit(name) {
+                    self.pickup_notice = Some((msg, GOLD, 3.0));
+                }
+                let nearby = self.world.known_planet_names();
+                let active_titles: Vec<String> =
+                    self.mission_log.active.iter().map(|m| m.title.clone()).collect();
+                let available = missions::gen_planet_missions(
+                    name,
+                    self.mission_log.completed_count,
+                    &nearby,
+                    &active_titles,
+                );
+                self.planet_menu = Some(PlanetMenu::new(name.to_string(), available));
             }
         }
 
-        // ── Pause simulation while planet menu is open ────────────────────────
-        if self.planet_menu.is_some() {
+        // ── Planet menu input & pause ────────────────────────────────────────
+        if let Some(ref mut menu) = self.planet_menu {
+            // Tab switching: 1 = Missions, 2 = Active
+            if is_key_pressed(KeyCode::Key1) {
+                menu.tab = MenuTab::Missions;
+                menu.selected = 0;
+            }
+            if is_key_pressed(KeyCode::Key2) {
+                menu.tab = MenuTab::Active;
+                menu.selected = 0;
+            }
+
+            // Selection movement
+            let list_len = match menu.tab {
+                MenuTab::Missions => menu.available.len(),
+                MenuTab::Active => self.mission_log.active.len(),
+            };
+            if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::W) {
+                if menu.selected > 0 {
+                    menu.selected -= 1;
+                }
+            }
+            if is_key_pressed(KeyCode::Down) || is_key_pressed(KeyCode::S) {
+                if menu.selected + 1 < list_len {
+                    menu.selected += 1;
+                }
+            }
+
+            // Accept mission / Claim reward with Space
+            if is_key_pressed(KeyCode::Space) {
+                match menu.tab {
+                    MenuTab::Missions => {
+                        if menu.selected < menu.available.len() && self.mission_log.can_accept() {
+                            let mission = menu.available.remove(menu.selected);
+                            let msg = format!("ACCEPTED: {}", mission.title);
+                            self.mission_log.accept(mission);
+                            self.pickup_notice = Some((msg, SKYBLUE, 2.5));
+                            if menu.selected > 0 && menu.selected >= menu.available.len() {
+                                menu.selected -= 1;
+                            }
+                        }
+                    }
+                    MenuTab::Active => {
+                        // Claim all completed missions
+                        let reward = self.mission_log.claim_completed();
+                        if reward > 0 {
+                            self.credits += reward;
+                            self.pickup_notice =
+                                Some((format!("REWARD: +{} CR", reward), GOLD, 3.0));
+                        }
+                    }
+                }
+            }
+
             let aspect = screen_width() / screen_height();
             self.camera.target = self.player.pos;
             self.camera.zoom = vec2(1.0 / (360.0 * aspect), 1.0 / 360.0);
@@ -187,10 +257,12 @@ impl Game {
             }
         }
 
-        // ── Enemy death → loot drops ──────────────────────────────────────────
+        // ── Enemy death → loot drops + mission tracking ─────────────────────
         let mut drops: Vec<LootDrop> = Vec::new();
+        let mut kill_count = 0u32;
         self.enemies.retain(|e| {
             if e.is_dead() {
+                kill_count += 1;
                 drops.push(LootDrop::new(
                     e.pos,
                     LootKind::Credits(10 + (e.max_health as u32 / 5)),
@@ -220,6 +292,11 @@ impl Game {
             }
         });
         self.loot_drops.extend(drops);
+        for _ in 0..kill_count {
+            if let Some(msg) = self.mission_log.notify_kill() {
+                self.pickup_notice = Some((msg, GOLD, 3.0));
+            }
+        }
 
         // ── Collision: enemy bullets → player ────────────────────────────────
         let player_pos = self.player.pos;
@@ -265,6 +342,9 @@ impl Game {
             match loot.kind {
                 LootKind::Credits(amt) => {
                     self.credits += amt;
+                    if let Some(msg) = self.mission_log.notify_credits(amt) {
+                        self.pickup_notice = Some((msg, GOLD, 3.0));
+                    }
                 }
                 LootKind::Weapon(w) => {
                     let slot_label = match w.slot {
@@ -343,8 +423,8 @@ impl Game {
         }
 
         self.draw_hud();
-        if let Some(ref name) = self.planet_menu {
-            self.draw_planet_menu(name);
+        if self.planet_menu.is_some() {
+            self.draw_planet_menu();
         }
 
         // ── Death overlay ───────────────────────────────────────────────────
@@ -502,80 +582,246 @@ impl Game {
         );
     }
 
-    fn draw_planet_menu(&self, name: &str) {
+    fn draw_planet_menu(&self) {
+        let menu = match &self.planet_menu {
+            Some(m) => m,
+            None => return,
+        };
+
         let sw = screen_width();
         let sh = screen_height();
 
         // Full-screen dimmer
         draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.08, 0.80));
 
-        // Panel
-        let pw = 400.0_f32;
-        let ph = 270.0_f32;
+        // Panel — taller to fit missions
+        let pw = 440.0_f32;
+        let ph = 400.0_f32;
         let px = sw * 0.5 - pw * 0.5;
         let py = sh * 0.5 - ph * 0.5;
         draw_rectangle(px, py, pw, ph, Color::new(0.04, 0.06, 0.18, 0.96));
         draw_rectangle_lines(px, py, pw, ph, 1.5, Color::new(0.3, 0.5, 1.0, 0.55));
 
         // Planet name
-        let title = name.to_uppercase();
+        let title = menu.name.to_uppercase();
         let fs_title = 28.0_f32;
         let tw = measure_text(&title, None, fs_title as u16, 1.0).width;
-        draw_text(&title, sw * 0.5 - tw * 0.5, py + 44.0, fs_title, SKYBLUE);
+        draw_text(&title, sw * 0.5 - tw * 0.5, py + 40.0, fs_title, SKYBLUE);
 
-        // Subtitle
-        let sub = "STATION SERVICES";
-        let fs_sub = 13.0_f32;
-        let stw = measure_text(sub, None, fs_sub as u16, 1.0).width;
-        draw_text(
-            sub,
-            sw * 0.5 - stw * 0.5,
-            py + 64.0,
-            fs_sub,
-            Color::new(0.5, 0.6, 0.8, 0.75),
-        );
+        // Credits
+        let cr = format!("Credits: {}", self.credits);
+        let crw = measure_text(&cr, None, 13, 1.0).width;
+        draw_text(&cr, sw * 0.5 - crw * 0.5, py + 58.0, 13.0, GOLD);
 
         // Divider
         draw_line(
             px + 20.0,
-            py + 78.0,
+            py + 68.0,
             px + pw - 20.0,
-            py + 78.0,
+            py + 68.0,
             0.7,
             Color::new(0.3, 0.4, 0.6, 0.45),
         );
 
-        // Service items (stubs)
-        let item_x = px + 36.0;
-        let item_y = py + 114.0;
-        let item_gap = 38.0_f32;
-        let dim = Color::new(0.45, 0.45, 0.5, 0.65);
-        draw_text("[ Shop ]      — coming soon", item_x, item_y, 16.0, dim);
-        draw_text(
-            "[ Missions ]  — coming soon",
-            item_x,
-            item_y + item_gap,
-            16.0,
-            dim,
-        );
+        // Tab bar
+        let tab_y = py + 88.0;
+        let active_tab_color = WHITE;
+        let inactive_tab_color = Color::new(0.4, 0.4, 0.5, 0.65);
+        let missions_color = if menu.tab == MenuTab::Missions {
+            active_tab_color
+        } else {
+            inactive_tab_color
+        };
+        let active_color = if menu.tab == MenuTab::Active {
+            active_tab_color
+        } else {
+            inactive_tab_color
+        };
+        draw_text("[1] AVAILABLE", px + 36.0, tab_y, 14.0, missions_color);
+        let active_label = format!("[2] ACTIVE ({})", self.mission_log.active.len());
+        draw_text(&active_label, px + 180.0, tab_y, 14.0, active_color);
 
-        // Credits display
-        draw_text(
-            &format!("Credits: {}", self.credits),
-            item_x,
-            item_y + item_gap * 2.2,
-            14.0,
-            GOLD,
-        );
+        // Underline active tab
+        let ul_y = tab_y + 4.0;
+        if menu.tab == MenuTab::Missions {
+            draw_line(px + 36.0, ul_y, px + 155.0, ul_y, 1.0, SKYBLUE);
+        } else {
+            draw_line(px + 180.0, ul_y, px + 330.0, ul_y, 1.0, SKYBLUE);
+        }
+
+        // Content area
+        let content_x = px + 36.0;
+        let content_y = tab_y + 26.0;
+        let row_h = 52.0;
+
+        match menu.tab {
+            MenuTab::Missions => {
+                if menu.available.is_empty() {
+                    draw_text(
+                        "No missions available.",
+                        content_x,
+                        content_y + 16.0,
+                        14.0,
+                        Color::new(0.4, 0.4, 0.5, 0.7),
+                    );
+                } else {
+                    for (i, m) in menu.available.iter().enumerate() {
+                        let y = content_y + i as f32 * row_h;
+                        let selected = i == menu.selected;
+
+                        // Selection highlight
+                        if selected {
+                            draw_rectangle(
+                                content_x - 6.0,
+                                y - 10.0,
+                                pw - 60.0,
+                                row_h - 4.0,
+                                Color::new(0.15, 0.2, 0.4, 0.5),
+                            );
+                        }
+
+                        // Title + reward
+                        let title_color = if selected { WHITE } else { LIGHTGRAY };
+                        draw_text(&m.title, content_x, y + 4.0, 15.0, title_color);
+                        let reward_str = format!("+{} CR", m.reward_credits);
+                        let rw = measure_text(&reward_str, None, 13, 1.0).width;
+                        draw_text(
+                            &reward_str,
+                            px + pw - 36.0 - rw,
+                            y + 4.0,
+                            13.0,
+                            GOLD,
+                        );
+
+                        // Briefing
+                        draw_text(
+                            &m.briefing,
+                            content_x,
+                            y + 20.0,
+                            11.0,
+                            Color::new(0.5, 0.55, 0.65, 0.85),
+                        );
+
+                        // Objective hint
+                        draw_text(
+                            &m.objective.progress_text(),
+                            content_x,
+                            y + 34.0,
+                            11.0,
+                            Color::new(0.4, 0.6, 0.8, 0.8),
+                        );
+                    }
+
+                    // Accept prompt
+                    if self.mission_log.can_accept() {
+                        let prompt = "[SPACE] Accept Mission";
+                        let pw2 = measure_text(prompt, None, 13, 1.0).width;
+                        draw_text(
+                            prompt,
+                            sw * 0.5 - pw2 * 0.5,
+                            py + ph - 38.0,
+                            13.0,
+                            Color::new(0.6, 0.8, 1.0, 0.85),
+                        );
+                    } else {
+                        let full = "Mission log full (max 3)";
+                        let fw = measure_text(full, None, 13, 1.0).width;
+                        draw_text(
+                            full,
+                            sw * 0.5 - fw * 0.5,
+                            py + ph - 38.0,
+                            13.0,
+                            Color::new(0.7, 0.3, 0.3, 0.85),
+                        );
+                    }
+                }
+            }
+            MenuTab::Active => {
+                if self.mission_log.active.is_empty() {
+                    draw_text(
+                        "No active missions.",
+                        content_x,
+                        content_y + 16.0,
+                        14.0,
+                        Color::new(0.4, 0.4, 0.5, 0.7),
+                    );
+                } else {
+                    let has_completed = self.mission_log.active.iter().any(|m| m.objective.is_complete());
+                    for (i, m) in self.mission_log.active.iter().enumerate() {
+                        let y = content_y + i as f32 * row_h;
+                        let complete = m.objective.is_complete();
+
+                        // Title
+                        let title_color = if complete { GOLD } else { LIGHTGRAY };
+                        draw_text(&m.title, content_x, y + 4.0, 15.0, title_color);
+
+                        // Reward
+                        let reward_str = format!("+{} CR", m.reward_credits);
+                        let rw = measure_text(&reward_str, None, 13, 1.0).width;
+                        draw_text(
+                            &reward_str,
+                            px + pw - 36.0 - rw,
+                            y + 4.0,
+                            13.0,
+                            GOLD,
+                        );
+
+                        // Progress bar
+                        let bar_w = pw - 72.0;
+                        let bar_h = 6.0;
+                        let bar_y = y + 16.0;
+                        draw_rectangle(content_x, bar_y, bar_w, bar_h, Color::new(0.2, 0.2, 0.3, 0.6));
+                        let frac = m.objective.progress_frac().min(1.0);
+                        let bar_color = if complete {
+                            Color::new(0.2, 0.9, 0.3, 0.9)
+                        } else {
+                            Color::new(0.3, 0.5, 1.0, 0.8)
+                        };
+                        draw_rectangle(content_x, bar_y, bar_w * frac, bar_h, bar_color);
+
+                        // Progress text
+                        let status = if complete {
+                            "COMPLETE".to_string()
+                        } else {
+                            m.objective.progress_text()
+                        };
+                        draw_text(
+                            &status,
+                            content_x,
+                            y + 34.0,
+                            11.0,
+                            if complete {
+                                Color::new(0.2, 0.9, 0.3, 0.9)
+                            } else {
+                                Color::new(0.5, 0.55, 0.65, 0.85)
+                            },
+                        );
+                    }
+
+                    // Claim prompt
+                    if has_completed {
+                        let prompt = "[SPACE] Claim Rewards";
+                        let pw2 = measure_text(prompt, None, 13, 1.0).width;
+                        draw_text(
+                            prompt,
+                            sw * 0.5 - pw2 * 0.5,
+                            py + ph - 38.0,
+                            13.0,
+                            GOLD,
+                        );
+                    }
+                }
+            }
+        }
 
         // Footer
-        let footer = "[E]  Depart";
-        let fs_foot = 15.0_f32;
+        let footer = "[E]  Depart       [W/S] Navigate";
+        let fs_foot = 13.0_f32;
         let ftw = measure_text(footer, None, fs_foot as u16, 1.0).width;
         draw_text(
             footer,
             sw * 0.5 - ftw * 0.5,
-            py + ph - 16.0,
+            py + ph - 14.0,
             fs_foot,
             YELLOW,
         );
