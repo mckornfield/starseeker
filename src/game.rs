@@ -31,6 +31,9 @@ pub(crate) struct Game {
     camera: Camera2D,
     world: World,
     mobile: MobileOverlay,
+
+    planet_menu: Option<String>,
+    prev_interact: bool,
 }
 
 impl Game {
@@ -53,6 +56,9 @@ impl Game {
             },
             world: World::new(),
             mobile: MobileOverlay::new(),
+
+            planet_menu: None,
+            prev_interact: false,
         }
     }
 
@@ -60,9 +66,30 @@ impl Game {
         let dt = get_frame_time();
 
         // ── Input ─────────────────────────────────────────────────────────────
+        let near_planet = self.world.nearby_planet_name(self.player.pos).is_some()
+            || self.planet_menu.is_some();
         let kb = InputState::from_keyboard();
-        let touch = self.mobile.update();
+        let touch = self.mobile.update(near_planet);
         let input = kb.merge(&touch);
+
+        // ── Planet menu toggle (edge-detected) ────────────────────────────────
+        let interact_just = input.interact && !self.prev_interact;
+        self.prev_interact = input.interact;
+        if interact_just {
+            if self.planet_menu.is_some() {
+                self.planet_menu = None;
+            } else if let Some(name) = self.world.nearby_planet_name(self.player.pos) {
+                self.planet_menu = Some(name.to_string());
+            }
+        }
+
+        // ── Pause simulation while planet menu is open ────────────────────────
+        if self.planet_menu.is_some() {
+            let aspect = screen_width() / screen_height();
+            self.camera.target = self.player.pos;
+            self.camera.zoom = vec2(1.0 / (360.0 * aspect), 1.0 / 360.0);
+            return;
+        }
 
         // ── Player ────────────────────────────────────────────────────────────
         self.player.update(dt, &input, &mut self.projectiles);
@@ -246,7 +273,12 @@ impl Game {
         set_default_camera();
 
         self.draw_hud();
-        self.mobile.draw();
+        if let Some(ref name) = self.planet_menu {
+            self.draw_planet_menu(name);
+        }
+        let near_planet = self.world.nearby_planet_name(self.player.pos).is_some()
+            || self.planet_menu.is_some();
+        self.mobile.draw(near_planet);
     }
 
     fn draw_hud(&self) {
@@ -325,7 +357,7 @@ impl Game {
         }
 
         draw_text(
-            "W/↑ Thrust  S/↓ Brake  A/D Rotate  Space Main  Ctrl/Z Aux",
+            "W/↑ Thrust  S/↓ Brake  A/D Rotate  C Stabilize  Space Main  Ctrl/Z Aux  E Interact",
             pad,
             screen_height() - pad,
             13.0,
@@ -391,6 +423,85 @@ impl Game {
                     t.stat_summary(),
                 )
             }),
+        );
+    }
+
+    fn draw_planet_menu(&self, name: &str) {
+        let sw = screen_width();
+        let sh = screen_height();
+
+        // Full-screen dimmer
+        draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.08, 0.80));
+
+        // Panel
+        let pw = 400.0_f32;
+        let ph = 270.0_f32;
+        let px = sw * 0.5 - pw * 0.5;
+        let py = sh * 0.5 - ph * 0.5;
+        draw_rectangle(px, py, pw, ph, Color::new(0.04, 0.06, 0.18, 0.96));
+        draw_rectangle_lines(px, py, pw, ph, 1.5, Color::new(0.3, 0.5, 1.0, 0.55));
+
+        // Planet name
+        let title = name.to_uppercase();
+        let fs_title = 28.0_f32;
+        let tw = measure_text(&title, None, fs_title as u16, 1.0).width;
+        draw_text(&title, sw * 0.5 - tw * 0.5, py + 44.0, fs_title, SKYBLUE);
+
+        // Subtitle
+        let sub = "STATION SERVICES";
+        let fs_sub = 13.0_f32;
+        let stw = measure_text(sub, None, fs_sub as u16, 1.0).width;
+        draw_text(
+            sub,
+            sw * 0.5 - stw * 0.5,
+            py + 64.0,
+            fs_sub,
+            Color::new(0.5, 0.6, 0.8, 0.75),
+        );
+
+        // Divider
+        draw_line(
+            px + 20.0,
+            py + 78.0,
+            px + pw - 20.0,
+            py + 78.0,
+            0.7,
+            Color::new(0.3, 0.4, 0.6, 0.45),
+        );
+
+        // Service items (stubs)
+        let item_x = px + 36.0;
+        let item_y = py + 114.0;
+        let item_gap = 38.0_f32;
+        let dim = Color::new(0.45, 0.45, 0.5, 0.65);
+        draw_text("[ Shop ]      — coming soon", item_x, item_y, 16.0, dim);
+        draw_text(
+            "[ Missions ]  — coming soon",
+            item_x,
+            item_y + item_gap,
+            16.0,
+            dim,
+        );
+
+        // Credits display
+        draw_text(
+            &format!("Credits: {}", self.credits),
+            item_x,
+            item_y + item_gap * 2.2,
+            14.0,
+            GOLD,
+        );
+
+        // Footer
+        let footer = "[E]  Depart";
+        let fs_foot = 15.0_f32;
+        let ftw = measure_text(footer, None, fs_foot as u16, 1.0).width;
+        draw_text(
+            footer,
+            sw * 0.5 - ftw * 0.5,
+            py + ph - 16.0,
+            fs_foot,
+            YELLOW,
         );
     }
 

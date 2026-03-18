@@ -6,6 +6,8 @@ pub(crate) struct InputState {
     pub rotate_right: bool,
     pub thrust: bool,
     pub brake: bool,
+    pub stabilize: bool,
+    pub interact: bool,
     pub fire_main: bool,
     pub fire_aux: bool,
 }
@@ -17,6 +19,8 @@ impl InputState {
             rotate_right: is_key_down(KeyCode::Right) || is_key_down(KeyCode::D),
             thrust: is_key_down(KeyCode::Up) || is_key_down(KeyCode::W),
             brake: is_key_down(KeyCode::Down) || is_key_down(KeyCode::S),
+            stabilize: is_key_down(KeyCode::C),
+            interact: is_key_pressed(KeyCode::E),
             fire_main: is_key_down(KeyCode::Space),
             fire_aux: is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::Z),
         }
@@ -29,6 +33,8 @@ impl InputState {
             rotate_right: self.rotate_right || other.rotate_right,
             thrust: self.thrust || other.thrust,
             brake: self.brake || other.brake,
+            stabilize: self.stabilize || other.stabilize,
+            interact: self.interact || other.interact,
             fire_main: self.fire_main || other.fire_main,
             fire_aux: self.fire_aux || other.fire_aux,
         }

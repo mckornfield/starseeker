@@ -13,6 +13,7 @@ pub(crate) struct Player {
     pub vel: Vec2,
     pub rotation: f32, // radians; 0 = pointing up
     pub is_thrusting: bool,
+    pub is_stabilizing: bool,
     pub loadout: Loadout,
 
     main_cooldown: f32,
@@ -26,6 +27,7 @@ impl Player {
             vel: Vec2::ZERO,
             rotation: 0.0,
             is_thrusting: false,
+            is_stabilizing: false,
             loadout: Loadout::starter(),
             main_cooldown: 0.0,
             aux_cooldown: 0.0,
@@ -50,6 +52,7 @@ impl Player {
 
         let forward = Vec2::new(self.rotation.sin(), -self.rotation.cos());
         self.is_thrusting = input.thrust;
+        self.is_stabilizing = input.stabilize && self.vel.length_squared() > 1.0;
 
         // Thruster stats
         let (thrust, max_speed) = if let Some(ref t) = self.loadout.thruster {
@@ -58,11 +61,19 @@ impl Player {
             (BASE_THRUST, BASE_MAX_SPEED)
         };
 
-        if input.thrust {
-            self.vel += forward * thrust * dt;
-        }
-        if input.brake {
-            self.vel -= forward * thrust * dt;
+        if input.stabilize {
+            // Retro-thruster: strong exponential damping toward zero
+            self.vel *= 1.0 - (dt * 4.0).min(1.0);
+            if self.vel.length_squared() < 1.0 {
+                self.vel = Vec2::ZERO;
+            }
+        } else {
+            if input.thrust {
+                self.vel += forward * thrust * dt;
+            }
+            if input.brake {
+                self.vel -= forward * thrust * dt;
+            }
         }
 
         self.vel *= DRAG;
@@ -139,6 +150,18 @@ impl Player {
             };
             draw_circle(exhaust.x, exhaust.y, 5.0, outer);
             draw_circle(exhaust.x, exhaust.y, 3.0, inner);
+        }
+
+        if self.is_stabilizing {
+            // Retro-thruster ring: 8 puffs equally spaced around the ship
+            let ring_r = size * 1.4;
+            for i in 0..8 {
+                let angle = (i as f32) * std::f32::consts::TAU / 8.0;
+                let dir = Vec2::new(angle.sin(), -angle.cos());
+                let puff = self.pos + dir * ring_r;
+                draw_circle(puff.x, puff.y, 4.0, Color::new(0.4, 0.8, 1.0, 0.55));
+                draw_circle(puff.x, puff.y, 2.0, Color::new(0.9, 1.0, 1.0, 0.85));
+            }
         }
     }
 }
