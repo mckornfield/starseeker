@@ -3,7 +3,7 @@ pub(crate) mod gen;
 
 use crate::entities::asteroid::Asteroid;
 use crate::entities::enemy::EnemyArchetype;
-use chunk::{Chunk, ChunkCoord};
+use chunk::{Chunk, ChunkCoord, ChunkType, CHUNK_SIZE};
 use macroquad::prelude::*;
 use std::collections::HashMap;
 
@@ -127,6 +127,40 @@ impl World {
         self.chunks
             .values()
             .filter_map(|c| c.planet.as_ref().map(|p| p.name.clone()))
+            .collect()
+    }
+
+    /// Data for drawing the map: planet (pos, radius, color, name) for each loaded chunk.
+    pub fn map_planets(&self) -> Vec<(Vec2, f32, Color, &str)> {
+        self.chunks
+            .values()
+            .filter_map(|c| {
+                c.planet
+                    .as_ref()
+                    .map(|p| (p.pos, p.radius, p.color, p.name.as_str()))
+            })
+            .collect()
+    }
+
+    /// Chunk grid info for the map: (chunk_origin, chunk_type_color) for each loaded chunk.
+    pub fn map_chunks(&self) -> Vec<(Vec2, Color)> {
+        self.chunks
+            .values()
+            .map(|c| {
+                let origin = Vec2::new(
+                    c.coord.cx as f32 * CHUNK_SIZE,
+                    c.coord.cy as f32 * CHUNK_SIZE,
+                );
+                let color = match &c.chunk_type {
+                    ChunkType::DeepSpace => Color::new(0.1, 0.1, 0.15, 0.3),
+                    ChunkType::Nebula { tint } => {
+                        Color::new(tint.r, tint.g, tint.b, 0.2)
+                    }
+                    ChunkType::Derelict => Color::new(0.5, 0.3, 0.1, 0.25),
+                    ChunkType::HasPlanet => Color::new(0.15, 0.25, 0.4, 0.3),
+                };
+                (origin, color)
+            })
             .collect()
     }
 

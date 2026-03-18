@@ -46,6 +46,7 @@ pub(crate) struct Game {
     mobile: MobileOverlay,
 
     planet_menu: Option<PlanetMenu>,
+    show_map: bool,
     prev_interact: bool,
 }
 
@@ -77,6 +78,7 @@ impl Game {
             mobile: MobileOverlay::new(),
 
             planet_menu: None,
+            show_map: false,
             prev_interact: false,
         }
     }
@@ -191,6 +193,11 @@ impl Game {
             self.camera.target = self.player.pos;
             self.camera.zoom = vec2(1.0 / (360.0 * aspect), 1.0 / 360.0);
             return;
+        }
+
+        // ── Map toggle ───────────────────────────────────────────────────────
+        if is_key_pressed(KeyCode::M) {
+            self.show_map = !self.show_map;
         }
 
         // ── Player ────────────────────────────────────────────────────────────
@@ -423,6 +430,9 @@ impl Game {
         }
 
         self.draw_hud();
+        if self.show_map {
+            self.draw_map();
+        }
         if self.planet_menu.is_some() {
             self.draw_planet_menu();
         }
@@ -513,7 +523,7 @@ impl Game {
         }
 
         draw_text(
-            "W/↑ Thrust  S/↓ Brake  A/D Rotate  C Stabilize  Space Main  Ctrl/Z Aux  E Interact",
+            "W/↑ Thrust  S/↓ Brake  A/D Rotate  C Stabilize  Space Main  Ctrl/Z Aux  E Interact  M Map",
             pad,
             screen_height() - pad,
             13.0,
@@ -579,6 +589,163 @@ impl Game {
                     t.stat_summary(),
                 )
             }),
+        );
+    }
+
+    fn draw_map(&self) {
+        let sw = screen_width();
+        let sh = screen_height();
+
+        // Semi-transparent background
+        draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.05, 0.75));
+
+        // Map viewport: centered on screen, showing loaded chunks
+        let map_w = sw * 0.8;
+        let map_h = sh * 0.8;
+        let map_x = sw * 0.1;
+        let map_y = sh * 0.1;
+
+        // Border
+        draw_rectangle_lines(map_x, map_y, map_w, map_h, 1.0, Color::new(0.3, 0.5, 1.0, 0.4));
+
+        // Title
+        let title = "SECTOR MAP";
+        let tw = measure_text(title, None, 20, 1.0).width;
+        draw_text(title, sw * 0.5 - tw * 0.5, map_y - 6.0, 20.0, SKYBLUE);
+
+        // Determine world-space bounds from loaded chunks
+        let chunks = self.world.map_chunks();
+        let planets = self.world.map_planets();
+
+        if chunks.is_empty() {
+            return;
+        }
+
+        // Find bounding box of all loaded chunks
+        let chunk_size = 3200.0_f32;
+        let mut min_x = f32::MAX;
+        let mut min_y = f32::MAX;
+        let mut max_x = f32::MIN;
+        let mut max_y = f32::MIN;
+        for &(origin, _) in &chunks {
+            min_x = min_x.min(origin.x);
+            min_y = min_y.min(origin.y);
+            max_x = max_x.max(origin.x + chunk_size);
+            max_y = max_y.max(origin.y + chunk_size);
+        }
+
+        let world_w = max_x - min_x;
+        let world_h = max_y - min_y;
+        // Scale to fit map viewport with some padding
+        let padding = 20.0;
+        let usable_w = map_w - padding * 2.0;
+        let usable_h = map_h - padding * 2.0;
+        let scale = (usable_w / world_w).min(usable_h / world_h);
+
+        // Offset to center the map content
+        let center_x = map_x + map_w * 0.5;
+        let center_y = map_y + map_h * 0.5;
+        let world_cx = (min_x + max_x) * 0.5;
+        let world_cy = (min_y + max_y) * 0.5;
+
+        let to_screen = |world_pos: Vec2| -> Vec2 {
+            Vec2::new(
+                center_x + (world_pos.x - world_cx) * scale,
+                center_y + (world_pos.y - world_cy) * scale,
+            )
+        };
+
+        // Draw chunk grid with zone colors
+        for &(origin, color) in &chunks {
+            let tl = to_screen(origin);
+            let sz = chunk_size * scale;
+            draw_rectangle(tl.x, tl.y, sz, sz, color);
+            draw_rectangle_lines(tl.x, tl.y, sz, sz, 0.5, Color::new(0.3, 0.3, 0.4, 0.2));
+        }
+
+        // Draw planets
+        for &(pos, radius, color, name) in &planets {
+            let sp = to_screen(pos);
+            let sr = (radius * scale).max(4.0); // minimum visible size
+            draw_circle(sp.x, sp.y, sr, Color::new(color.r, color.g, color.b, 0.8));
+            draw_circle_lines(
+                sp.x,
+                sp.y,
+                sr,
+                1.0,
+                Color::new(
+                    (color.r + 0.3).min(1.0),
+                    (color.g + 0.3).min(1.0),
+                    (color.b + 0.3).min(1.0),
+                    0.7,
+                ),
+            );
+            // Planet name label
+            let fs = 11.0_f32;
+            let ntw = measure_text(name, None, fs as u16, 1.0).width;
+            draw_text(
+                name,
+                sp.x - ntw * 0.5,
+                sp.y + sr + 12.0,
+                fs,
+                Color::new(1.0, 1.0, 1.0, 0.75),
+            );
+        }
+
+        // Draw player position
+        let player_sp = to_screen(self.player.pos);
+        // Direction indicator
+        let forward = Vec2::new(self.player.rotation.sin(), -self.player.rotation.cos());
+        let arrow_len = 8.0;
+        draw_line(
+            player_sp.x,
+            player_sp.y,
+            player_sp.x + forward.x * arrow_len,
+            player_sp.y + forward.y * arrow_len,
+            1.5,
+            WHITE,
+        );
+        draw_circle(player_sp.x, player_sp.y, 3.0, WHITE);
+        draw_text("YOU", player_sp.x + 6.0, player_sp.y - 6.0, 10.0, WHITE);
+
+        // Draw mission targets
+        for m in &self.mission_log.active {
+            if let crate::missions::Objective::VisitPlanet {
+                ref planet_name,
+                visited,
+            } = m.objective
+            {
+                if visited {
+                    continue;
+                }
+                // Find the target planet in loaded data
+                for &(pos, radius, _, name) in &planets {
+                    if name == planet_name {
+                        let sp = to_screen(pos);
+                        let sr = (radius * scale).max(4.0) + 6.0;
+                        // Pulsing ring around mission target
+                        let pulse = ((get_time() * 2.0).sin() * 0.3 + 0.7) as f32;
+                        draw_circle_lines(
+                            sp.x,
+                            sp.y,
+                            sr,
+                            1.5,
+                            Color::new(1.0, 0.8, 0.0, pulse),
+                        );
+                    }
+                }
+            }
+        }
+
+        // Footer
+        let hint = "[M] Close Map";
+        let hw = measure_text(hint, None, 13, 1.0).width;
+        draw_text(
+            hint,
+            sw * 0.5 - hw * 0.5,
+            map_y + map_h + 18.0,
+            13.0,
+            YELLOW,
         );
     }
 
