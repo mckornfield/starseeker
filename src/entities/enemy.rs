@@ -1,16 +1,27 @@
-use macroquad::prelude::*;
 use crate::projectile::Projectile;
+use macroquad::prelude::*;
 
 const DETECT_RANGE: f32 = 700.0;
 
 #[derive(Clone, Copy, PartialEq)]
-pub enum EnemyArchetype {
+pub(crate) enum EnemyArchetype {
     Tank,
     Agile,
     Ranged,
 }
 
-pub struct Enemy {
+impl EnemyArchetype {
+    /// Collision/hit radius for this archetype — single source of truth.
+    pub fn hit_radius(self) -> f32 {
+        match self {
+            EnemyArchetype::Tank => 18.0,
+            EnemyArchetype::Agile => 10.0,
+            EnemyArchetype::Ranged => 13.0,
+        }
+    }
+}
+
+pub(crate) struct Enemy {
     pub pos: Vec2,
     pub vel: Vec2,
     pub rotation: f32,
@@ -31,7 +42,11 @@ impl Enemy {
             EnemyArchetype::Ranged => 40.0,
         };
         // Use pos to seed a stable orbit sign per-enemy
-        let orbit_sign = if (pos.x as i32 + pos.y as i32) % 2 == 0 { 1.0 } else { -1.0 };
+        let orbit_sign = if (pos.x as i32 + pos.y as i32) % 2 == 0 {
+            1.0
+        } else {
+            -1.0
+        };
         Self {
             pos,
             vel: Vec2::ZERO,
@@ -144,23 +159,42 @@ impl Enemy {
     }
 
     fn draw_tank(&self) {
-        let r = 18.0;
-        draw_circle(self.pos.x, self.pos.y, r * 0.55, Color::new(0.5, 0.05, 0.05, 0.8));
+        let r = self.archetype.hit_radius();
+        draw_circle(
+            self.pos.x,
+            self.pos.y,
+            r * 0.55,
+            Color::new(0.5, 0.05, 0.05, 0.8),
+        );
         draw_circle_lines(self.pos.x, self.pos.y, r, 2.5, RED);
-        draw_circle_lines(self.pos.x, self.pos.y, r * 0.6, 1.0, Color::new(1.0, 0.3, 0.3, 0.5));
+        draw_circle_lines(
+            self.pos.x,
+            self.pos.y,
+            r * 0.6,
+            1.0,
+            Color::new(1.0, 0.3, 0.3, 0.5),
+        );
         // Cross hatch
         draw_line(
-            self.pos.x - r, self.pos.y, self.pos.x + r, self.pos.y, 1.5,
+            self.pos.x - r,
+            self.pos.y,
+            self.pos.x + r,
+            self.pos.y,
+            1.5,
             Color::new(1.0, 0.3, 0.3, 0.4),
         );
         draw_line(
-            self.pos.x, self.pos.y - r, self.pos.x, self.pos.y + r, 1.5,
+            self.pos.x,
+            self.pos.y - r,
+            self.pos.x,
+            self.pos.y + r,
+            1.5,
             Color::new(1.0, 0.3, 0.3, 0.4),
         );
     }
 
     fn draw_agile(&self) {
-        let size = 10.0;
+        let size = self.archetype.hit_radius();
         let fwd = Vec2::new(self.rotation.sin(), -self.rotation.cos());
         let right = Vec2::new(fwd.y, -fwd.x);
         let tip = self.pos + fwd * size;
@@ -171,7 +205,7 @@ impl Enemy {
     }
 
     fn draw_ranged(&self) {
-        let r = 13.0;
+        let r = self.archetype.hit_radius();
         let up = self.pos + Vec2::new(0.0, -r);
         let dn = self.pos + Vec2::new(0.0, r);
         let lt = self.pos + Vec2::new(-r * 0.65, 0.0);
@@ -208,4 +242,49 @@ fn wrap_angle(mut a: f32) -> f32 {
         a += 2.0 * PI;
     }
     a
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::f32::consts::PI;
+
+    #[test]
+    fn wrap_angle_zero() {
+        assert!((wrap_angle(0.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn wrap_angle_positive_wrap() {
+        let result = wrap_angle(3.0 * PI);
+        assert!(result > -PI && result <= PI, "got {result}");
+        assert!((result - PI).abs() < 1e-5);
+    }
+
+    #[test]
+    fn wrap_angle_negative_wrap() {
+        let result = wrap_angle(-3.0 * PI);
+        assert!((-PI..=PI).contains(&result), "got {result}");
+    }
+
+    #[test]
+    fn wrap_angle_already_in_range() {
+        let v = 1.0_f32;
+        assert!((wrap_angle(v) - v).abs() < 1e-6);
+    }
+
+    #[test]
+    fn hit_radius_values() {
+        assert_eq!(EnemyArchetype::Tank.hit_radius(), 18.0);
+        assert_eq!(EnemyArchetype::Agile.hit_radius(), 10.0);
+        assert_eq!(EnemyArchetype::Ranged.hit_radius(), 13.0);
+    }
+
+    #[test]
+    fn enemy_takes_damage_and_dies() {
+        let mut e = Enemy::new(Vec2::ZERO, EnemyArchetype::Agile);
+        assert!(!e.is_dead());
+        e.take_damage(25.0);
+        assert!(e.is_dead());
+    }
 }

@@ -1,4 +1,3 @@
-use macroquad::prelude::*;
 use crate::entities::enemy::Enemy;
 use crate::entities::loot::{LootDrop, LootKind, PICKUP_RANGE};
 use crate::input::InputState;
@@ -7,6 +6,7 @@ use crate::mobile::MobileOverlay;
 use crate::player::Player;
 use crate::projectile::{Owner, Projectile};
 use crate::world::World;
+use macroquad::prelude::*;
 
 const PLAYER_RADIUS: f32 = 12.0;
 const PLAYER_MAX_HEALTH: f32 = 100.0;
@@ -15,7 +15,7 @@ const ASTEROID_HIT_IFRAMES: f32 = 0.5;
 /// Cull enemies that wander farther than this from the player
 const ENEMY_CULL_DIST: f32 = 7000.0;
 
-pub struct Game {
+pub(crate) struct Game {
     player: Player,
     player_health: f32,
     asteroid_iframes: f32,
@@ -92,54 +92,40 @@ impl Game {
         // ── Pickup notice timer ───────────────────────────────────────────────
         if let Some((_, _, ref mut t)) = self.pickup_notice {
             *t -= dt;
-            if *t <= 0.0 { self.pickup_notice = None; }
-        }
-
-        // ── Collision: player bullets → asteroids ─────────────────────────────
-        let player_proj_positions: Vec<(usize, Vec2)> = self
-            .projectiles
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| p.owner == Owner::Player)
-            .map(|(i, p)| (i, p.pos))
-            .collect();
-
-        let mut remove_projs: Vec<usize> = Vec::new();
-        for (i, pos) in &player_proj_positions {
-            if self.world.remove_asteroid_hit(*pos, 3.0) {
-                remove_projs.push(*i);
+            if *t <= 0.0 {
+                self.pickup_notice = None;
             }
         }
-        for i in remove_projs.into_iter().rev() {
-            self.projectiles.swap_remove(i);
-        }
 
-        // ── Collision: player bullets → enemies ───────────────────────────────
-        let player_proj_data: Vec<(usize, Vec2, f32)> = self
-            .projectiles
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| p.owner == Owner::Player)
-            .map(|(i, p)| (i, p.pos, p.damage))
-            .collect();
+        // ── Collision: player bullets → asteroids + enemies (single pass) ────
+        // Iterate backwards so swap_remove doesn't invalidate unvisited indices.
+        let mut i = self.projectiles.len();
+        while i > 0 {
+            i -= 1;
+            if self.projectiles[i].owner != Owner::Player {
+                continue;
+            }
+            let pos = self.projectiles[i].pos;
+            let damage = self.projectiles[i].damage;
 
-        let mut remove_projs: Vec<usize> = Vec::new();
-        for (i, pos, damage) in &player_proj_data {
+            // Check asteroid hit first
+            if self.world.remove_asteroid_hit(pos, 3.0) {
+                self.projectiles.swap_remove(i);
+                continue;
+            }
+
+            // Check enemy hit
+            let mut hit = false;
             for enemy in &mut self.enemies {
-                let hit_r = match enemy.archetype {
-                    crate::entities::enemy::EnemyArchetype::Tank   => 18.0,
-                    crate::entities::enemy::EnemyArchetype::Agile  => 10.0,
-                    crate::entities::enemy::EnemyArchetype::Ranged => 13.0,
-                };
-                if pos.distance(enemy.pos) < hit_r {
-                    enemy.take_damage(*damage);
-                    remove_projs.push(*i);
+                if pos.distance(enemy.pos) < enemy.archetype.hit_radius() {
+                    enemy.take_damage(damage);
+                    hit = true;
                     break;
                 }
             }
-        }
-        for i in remove_projs.into_iter().rev() {
-            self.projectiles.swap_remove(i);
+            if hit {
+                self.projectiles.swap_remove(i);
+            }
         }
 
         // ── Enemy death → loot drops ──────────────────────────────────────────
@@ -198,18 +184,13 @@ impl Game {
 
         // ── Loot pickup ───────────────────────────────────────────────────────
         let player_pos = self.player.pos;
-        let mut picked: Vec<LootDrop> = Vec::new();
-        let mut remaining: Vec<LootDrop> = Vec::new();
-        for loot in self.loot_drops.drain(..) {
-            if loot.pos.distance(player_pos) < PICKUP_RANGE {
-                picked.push(loot);
-            } else {
-                remaining.push(loot);
+        let mut i = self.loot_drops.len();
+        while i > 0 {
+            i -= 1;
+            if self.loot_drops[i].pos.distance(player_pos) >= PICKUP_RANGE {
+                continue;
             }
-        }
-        self.loot_drops = remaining;
-
-        for loot in picked {
+            let loot = self.loot_drops.swap_remove(i);
             match loot.kind {
                 LootKind::Credits(amt) => {
                     self.credits += amt;
@@ -217,7 +198,7 @@ impl Game {
                 LootKind::Weapon(w) => {
                     let slot_label = match w.slot {
                         crate::items::WeaponSlot::Main => "MAIN",
-                        crate::items::WeaponSlot::Aux  => "AUX",
+                        crate::items::WeaponSlot::Aux => "AUX",
                     };
                     if let Some((name, rarity)) = self.player.equip_weapon(w) {
                         let msg = format!("EQUIPPED [{}] {} {}", slot_label, rarity.label(), name);
@@ -270,10 +251,16 @@ impl Game {
 
     fn draw_hud(&self) {
         let pad = 12.0;
-        let fs  = 18.0;
+        let fs = 18.0;
 
         draw_text("STARSEEKER", pad, pad + fs, fs, SKYBLUE);
-        draw_text(&format!("FPS: {}", get_fps()), pad, pad + fs * 2.4, 14.0, GRAY);
+        draw_text(
+            &format!("FPS: {}", get_fps()),
+            pad,
+            pad + fs * 2.4,
+            14.0,
+            GRAY,
+        );
 
         // Health bar
         let bar_w = 160.0;
@@ -300,7 +287,7 @@ impl Game {
 
         // Credits
         draw_text(
-            &format!("¢ {}", self.credits),
+            &format!("CR {}", self.credits),
             screen_width() - 90.0,
             pad + fs,
             fs,
@@ -348,59 +335,92 @@ impl Game {
 
     fn draw_loadout_panel(&self) {
         let sw = screen_width();
-        let sh = screen_height();
         let pad = 10.0;
-        let row_h = 18.0;
-        let panel_w = 220.0;
+        let row_h = 20.0;
+        let panel_w = 270.0;
         let panel_x = sw - panel_w - pad;
-        let panel_y = sh - pad - row_h * 3.5;
+        // Anchor below the title/credits row so it never overlaps bottom controls
+        let panel_y = pad + 52.0;
 
         let loadout = &self.player.loadout;
 
         // Background
         draw_rectangle(
-            panel_x - 4.0, panel_y - 14.0,
-            panel_w + 8.0, row_h * 3.5 + 4.0,
+            panel_x - 4.0,
+            panel_y - 14.0,
+            panel_w + 8.0,
+            row_h * 3.5 + 4.0,
             Color::new(0.0, 0.0, 0.0, 0.5),
         );
 
         self.draw_loadout_slot(
-            panel_x, panel_y,
+            panel_x,
+            panel_y,
             "MAIN",
-            loadout.main.as_ref().map(|w| (w.rarity.color(), w.rarity.label(), w.name.as_str(), w.stat_summary())),
+            loadout.main.as_ref().map(|w| {
+                (
+                    w.rarity.color(),
+                    w.rarity.label(),
+                    w.name.as_str(),
+                    w.stat_summary(),
+                )
+            }),
         );
         self.draw_loadout_slot(
-            panel_x, panel_y + row_h * 1.2,
+            panel_x,
+            panel_y + row_h * 1.2,
             "AUX ",
-            loadout.aux.as_ref().map(|w| (w.rarity.color(), w.rarity.label(), w.name.as_str(), w.stat_summary())),
+            loadout.aux.as_ref().map(|w| {
+                (
+                    w.rarity.color(),
+                    w.rarity.label(),
+                    w.name.as_str(),
+                    w.stat_summary(),
+                )
+            }),
         );
         self.draw_loadout_slot(
-            panel_x, panel_y + row_h * 2.4,
+            panel_x,
+            panel_y + row_h * 2.4,
             "THR ",
-            loadout.thruster.as_ref().map(|t| (t.rarity.color(), t.rarity.label(), "THRUSTER", t.stat_summary())),
+            loadout.thruster.as_ref().map(|t| {
+                (
+                    t.rarity.color(),
+                    t.rarity.label(),
+                    "THRUSTER",
+                    t.stat_summary(),
+                )
+            }),
         );
     }
 
     fn draw_loadout_slot(
         &self,
-        x: f32, y: f32,
+        x: f32,
+        y: f32,
         label: &str,
         item: Option<(Color, &str, &str, String)>,
     ) {
-        draw_text(label, x, y, 13.0, DARKGRAY);
+        draw_text(label, x, y, 14.0, DARKGRAY);
         if let Some((color, tier, name, stats)) = item {
-            let tx = x + 36.0;
-            draw_text(&format!("[{}]", tier), tx, y, 13.0, color);
-            let tw = measure_text(&format!("[{}]", tier), None, 13, 1.0).width;
+            let tx = x + 40.0;
+            draw_text(&format!("[{}]", tier), tx, y, 14.0, color);
+            let tw = measure_text(&format!("[{}]", tier), None, 14, 1.0).width;
             draw_text(
                 &format!(" {} {}", name, stats),
                 tx + tw,
                 y,
-                11.0,
+                12.0,
                 Color::new(0.7, 0.7, 0.7, 1.0),
             );
         } else {
-            draw_text("--- empty ---", x + 36.0, y, 11.0, Color::new(0.3, 0.3, 0.3, 1.0));
+            draw_text(
+                "--- empty ---",
+                x + 40.0,
+                y,
+                12.0,
+                Color::new(0.3, 0.3, 0.3, 1.0),
+            );
         }
     }
 }

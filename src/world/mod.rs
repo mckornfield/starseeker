@@ -1,12 +1,12 @@
-pub mod chunk;
-pub mod gen;
+pub(crate) mod chunk;
+pub(crate) mod gen;
 
-use std::collections::HashMap;
-use macroquad::prelude::Vec2;
-use chunk::{Chunk, ChunkCoord};
 use crate::entities::enemy::EnemyArchetype;
+use chunk::{Chunk, ChunkCoord};
+use macroquad::prelude::Vec2;
+use std::collections::HashMap;
 
-pub struct World {
+pub(crate) struct World {
     chunks: HashMap<(i32, i32), Chunk>,
     player_chunk: (i32, i32),
     /// New enemy spawns from freshly loaded chunks — drained by Game each frame.

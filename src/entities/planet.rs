@@ -1,8 +1,8 @@
 use macroquad::prelude::*;
 
-pub const LAND_RANGE: f32 = 180.0;
+pub(crate) const LAND_RANGE: f32 = 180.0;
 
-pub struct Planet {
+pub(crate) struct Planet {
     pub pos: Vec2,
     pub radius: f32,
     pub name: String,

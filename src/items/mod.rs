@@ -1,9 +1,9 @@
-pub mod loadout;
-pub mod rarity;
-pub mod thruster;
-pub mod weapon;
+pub(crate) mod loadout;
+pub(crate) mod rarity;
+pub(crate) mod thruster;
+pub(crate) mod weapon;
 
-pub use loadout::Loadout;
-pub use rarity::Rarity;
-pub use thruster::ThrusterItem;
-pub use weapon::{WeaponItem, WeaponSlot};
+pub(crate) use loadout::Loadout;
+pub(crate) use rarity::Rarity;
+pub(crate) use thruster::ThrusterItem;
+pub(crate) use weapon::{WeaponItem, WeaponSlot};

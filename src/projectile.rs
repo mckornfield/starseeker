@@ -4,12 +4,12 @@ const LIFETIME: f32 = 2.0;
 const RADIUS: f32 = 3.0;
 
 #[derive(PartialEq, Clone, Copy)]
-pub enum Owner {
+pub(crate) enum Owner {
     Player,
     Enemy,
 }
 
-pub struct Projectile {
+pub(crate) struct Projectile {
     pub pos: Vec2,
     pub vel: Vec2,
     pub lifetime: f32,
@@ -50,7 +50,11 @@ impl Projectile {
 
     pub fn draw(&self) {
         draw_circle(self.pos.x, self.pos.y, RADIUS, self.color);
-        let trail = self.pos - self.vel.normalize() * 6.0;
+        let trail = if self.vel.length_squared() > 0.0 {
+            self.pos - self.vel.normalize() * 6.0
+        } else {
+            self.pos
+        };
         draw_circle(
             trail.x,
             trail.y,

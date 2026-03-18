@@ -1,7 +1,7 @@
 use macroquad::prelude::*;
 
 #[derive(Default, Clone)]
-pub struct InputState {
+pub(crate) struct InputState {
     pub rotate_left: bool,
     pub rotate_right: bool,
     pub thrust: bool,

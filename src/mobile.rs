@@ -1,5 +1,5 @@
-use macroquad::prelude::*;
 use crate::input::InputState;
+use macroquad::prelude::*;
 
 struct Button {
     center: Vec2,
@@ -10,7 +10,12 @@ struct Button {
 
 impl Button {
     fn new(label: &'static str, radius: f32) -> Self {
-        Self { center: Vec2::ZERO, radius, label, pressed: false }
+        Self {
+            center: Vec2::ZERO,
+            radius,
+            label,
+            pressed: false,
+        }
     }
 
     fn hit_test(&self, pos: Vec2) -> bool {
@@ -32,7 +37,11 @@ impl Button {
             1.5,
             Color::new(1.0, 1.0, 1.0, 0.35),
         );
-        let fs = if self.label.len() > 2 { 13.0_f32 } else { 18.0_f32 };
+        let fs = if self.label.len() > 2 {
+            13.0_f32
+        } else {
+            18.0_f32
+        };
         let tw = measure_text(self.label, None, fs as u16, 1.0).width;
         draw_text(
             self.label,
@@ -46,7 +55,7 @@ impl Button {
 
 /// On-screen touch overlay.  Buttons are re-laid-out every frame so they
 /// adapt to screen rotation / resize.
-pub struct MobileOverlay {
+pub(crate) struct MobileOverlay {
     // 0=thrust 1=brake 2=rot_left 3=rot_right 4=fire_main 5=fire_aux
     buttons: [Button; 6],
 }
@@ -55,10 +64,10 @@ impl MobileOverlay {
     pub fn new() -> Self {
         Self {
             buttons: [
-                Button::new("▲", 36.0),
-                Button::new("▼", 36.0),
-                Button::new("◄", 36.0),
-                Button::new("►", 36.0),
+                Button::new("UP", 36.0),
+                Button::new("DN", 36.0),
+                Button::new("<", 36.0),
+                Button::new(">", 36.0),
                 Button::new("FIRE", 46.0),
                 Button::new("AUX", 32.0),
             ],
@@ -74,15 +83,15 @@ impl MobileOverlay {
         // Left d-pad cluster
         let lx = pad + gap * 0.5;
         let ly = sh - pad - gap * 0.5;
-        self.buttons[0].center = vec2(lx, ly - gap);         // thrust ▲
-        self.buttons[1].center = vec2(lx, ly + gap * 0.65);  // brake  ▼
-        self.buttons[2].center = vec2(lx - gap, ly);          // left   ◄
-        self.buttons[3].center = vec2(lx + gap, ly);          // right  ►
+        self.buttons[0].center = vec2(lx, ly - gap); // thrust ▲
+        self.buttons[1].center = vec2(lx, ly + gap * 0.65); // brake  ▼
+        self.buttons[2].center = vec2(lx - gap, ly); // left   ◄
+        self.buttons[3].center = vec2(lx + gap, ly); // right  ►
 
         // Right weapon cluster
         let rx = sw - pad - gap * 0.3;
         let ry = sh - pad - gap * 0.5;
-        self.buttons[4].center = vec2(rx, ry);                    // FIRE (main)
+        self.buttons[4].center = vec2(rx, ry); // FIRE (main)
         self.buttons[5].center = vec2(rx - gap * 1.1, ry - gap * 0.6); // AUX
     }
 

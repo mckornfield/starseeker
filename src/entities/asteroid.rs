@@ -1,6 +1,6 @@
 use macroquad::prelude::*;
 
-pub struct Asteroid {
+pub(crate) struct Asteroid {
     pub pos: Vec2,
     pub base_radius: f32,
     pub rotation: f32,

@@ -1,17 +1,17 @@
-use macroquad::prelude::*;
 use crate::input::InputState;
 use crate::items::{Loadout, ThrusterItem, WeaponItem};
 use crate::projectile::Projectile;
+use macroquad::prelude::*;
 
 const ROTATION_SPEED: f32 = 3.0;
 const BASE_THRUST: f32 = 320.0;
 const DRAG: f32 = 0.999;
 const BASE_MAX_SPEED: f32 = 650.0;
 
-pub struct Player {
+pub(crate) struct Player {
     pub pos: Vec2,
     pub vel: Vec2,
-    pub rotation: f32,      // radians; 0 = pointing up
+    pub rotation: f32, // radians; 0 = pointing up
     pub is_thrusting: bool,
     pub loadout: Loadout,
 
@@ -41,8 +41,12 @@ impl Player {
     }
 
     pub fn update(&mut self, dt: f32, input: &InputState, projectiles: &mut Vec<Projectile>) {
-        if input.rotate_left  { self.rotation -= ROTATION_SPEED * dt; }
-        if input.rotate_right { self.rotation += ROTATION_SPEED * dt; }
+        if input.rotate_left {
+            self.rotation -= ROTATION_SPEED * dt;
+        }
+        if input.rotate_right {
+            self.rotation += ROTATION_SPEED * dt;
+        }
 
         let forward = Vec2::new(self.rotation.sin(), -self.rotation.cos());
         self.is_thrusting = input.thrust;
@@ -54,8 +58,12 @@ impl Player {
             (BASE_THRUST, BASE_MAX_SPEED)
         };
 
-        if input.thrust { self.vel += forward * thrust * dt; }
-        if input.brake  { self.vel -= forward * thrust * dt; }
+        if input.thrust {
+            self.vel += forward * thrust * dt;
+        }
+        if input.brake {
+            self.vel -= forward * thrust * dt;
+        }
 
         self.vel *= DRAG;
         if self.vel.length() > max_speed {
@@ -65,18 +73,30 @@ impl Player {
         self.pos += self.vel * dt;
 
         self.main_cooldown = (self.main_cooldown - dt).max(0.0);
-        self.aux_cooldown  = (self.aux_cooldown  - dt).max(0.0);
+        self.aux_cooldown = (self.aux_cooldown - dt).max(0.0);
 
         // Main weapon
         if input.fire_main && self.main_cooldown == 0.0 {
             if let Some(ref w) = self.loadout.main {
                 let right = Vec2::new(forward.y, -forward.x);
                 let speed = w.proj_speed;
-                let dmg   = w.damage;
+                let dmg = w.damage;
                 let color = w.proj_color;
                 if w.spread {
-                    projectiles.push(Projectile::new(self.pos + right * 8.0, forward, speed, dmg, color));
-                    projectiles.push(Projectile::new(self.pos - right * 8.0, forward, speed, dmg, color));
+                    projectiles.push(Projectile::new(
+                        self.pos + right * 8.0,
+                        forward,
+                        speed,
+                        dmg,
+                        color,
+                    ));
+                    projectiles.push(Projectile::new(
+                        self.pos - right * 8.0,
+                        forward,
+                        speed,
+                        dmg,
+                        color,
+                    ));
                 } else {
                     projectiles.push(Projectile::new(self.pos, forward, speed, dmg, color));
                 }
@@ -88,7 +108,7 @@ impl Player {
         if input.fire_aux && self.aux_cooldown == 0.0 {
             if let Some(ref w) = self.loadout.aux {
                 let speed = w.proj_speed;
-                let dmg   = w.damage;
+                let dmg = w.damage;
                 let color = w.proj_color;
                 projectiles.push(Projectile::new(self.pos, forward, speed, dmg, color));
                 self.aux_cooldown = w.fire_rate;
@@ -101,8 +121,8 @@ impl Player {
         let forward = Vec2::new(self.rotation.sin(), -self.rotation.cos());
         let right = Vec2::new(forward.y, -forward.x);
 
-        let tip        = self.pos + forward * size;
-        let left_wing  = self.pos - forward * (size * 0.5) + right * (size * 0.65);
+        let tip = self.pos + forward * size;
+        let left_wing = self.pos - forward * (size * 0.5) + right * (size * 0.65);
         let right_wing = self.pos - forward * (size * 0.5) - right * (size * 0.65);
 
         draw_triangle(tip, left_wing, right_wing, WHITE);

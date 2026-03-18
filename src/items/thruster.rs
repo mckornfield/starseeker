@@ -1,7 +1,7 @@
 use super::rarity::Rarity;
 
 #[derive(Clone)]
-pub struct ThrusterItem {
+pub(crate) struct ThrusterItem {
     pub rarity: Rarity,
     pub speed_mult: f32,
     pub accel_mult: f32,
@@ -10,7 +10,7 @@ pub struct ThrusterItem {
 impl ThrusterItem {
     pub fn gen() -> Self {
         let rarity = Rarity::roll();
-        let extra  = rarity.budget_mult() - 1.0;
+        let extra = rarity.budget_mult() - 1.0;
 
         Self {
             rarity,

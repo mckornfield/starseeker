@@ -1,8 +1,8 @@
-use macroquad::prelude::*;
+use super::chunk::{Chunk, ChunkCoord, ChunkType, StarPoint, CHUNK_SIZE};
 use crate::entities::asteroid::Asteroid;
 use crate::entities::enemy::EnemyArchetype;
 use crate::entities::planet::Planet;
-use super::chunk::{Chunk, ChunkCoord, ChunkType, StarPoint, CHUNK_SIZE};
+use macroquad::prelude::*;
 
 const WORLD_SEED: u64 = 0xdeadbeef_cafebabe;
 
@@ -58,7 +58,7 @@ impl ChunkRng {
 
 // ── Public entry point ─────────────────────────────────────────────────────────
 
-pub fn gen_chunk(cx: i32, cy: i32) -> Chunk {
+pub(crate) fn gen_chunk(cx: i32, cy: i32) -> Chunk {
     let mut rng = ChunkRng::new(cx, cy);
     let origin = Vec2::new(cx as f32 * CHUNK_SIZE, cy as f32 * CHUNK_SIZE);
 
@@ -202,7 +202,15 @@ fn gen_asteroid(rng: &mut ChunkRng, origin: Vec2) -> Asteroid {
         1.0,
     );
 
-    Asteroid { pos, base_radius, rotation, rot_speed, vertex_angles, vertex_radii, color }
+    Asteroid {
+        pos,
+        base_radius,
+        rotation,
+        rot_speed,
+        vertex_angles,
+        vertex_radii,
+        color,
+    }
 }
 
 fn gen_planet(rng: &mut ChunkRng, origin: Vec2) -> Planet {
@@ -225,16 +233,22 @@ fn gen_planet(rng: &mut ChunkRng, origin: Vec2) -> Planet {
     let color = Color::new(r, g, b, 1.0);
     let name = gen_planet_name(rng);
 
-    Planet { pos, radius, name, color }
+    Planet {
+        pos,
+        radius,
+        name,
+        color,
+    }
 }
 
 fn gen_planet_name(rng: &mut ChunkRng) -> String {
     const SYLS: &[&str] = &[
-        "vel", "tar", "koss", "mir", "eth", "zar", "dun", "fel", "mor", "ael", "vex", "tor",
-        "yss", "nox", "dra", "kel", "sor", "ith",
+        "vel", "tar", "koss", "mir", "eth", "zar", "dun", "fel", "mor", "ael", "vex", "tor", "yss",
+        "nox", "dra", "kel", "sor", "ith",
     ];
-    const SUFS: &[&str] =
-        &["a", "is", "us", "on", "ix", "ar", "en", "ia", "or", "um", "ax", "ys"];
+    const SUFS: &[&str] = &[
+        "a", "is", "us", "on", "ix", "ar", "en", "ia", "or", "um", "ax", "ys",
+    ];
 
     let s1 = SYLS[rng.range_usize(SYLS.len())];
     let s2 = SUFS[rng.range_usize(SUFS.len())];
