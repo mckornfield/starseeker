@@ -78,7 +78,7 @@ impl MobileOverlay {
         let sw = screen_width();
         let sh = screen_height();
         let gap = 84.0_f32;
-        let pad = 60.0_f32;
+        let pad = 110.0_f32;
 
         // Left d-pad cluster
         let lx = pad + gap * 0.5;
