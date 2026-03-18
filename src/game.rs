@@ -14,6 +14,10 @@ const PLAYER_MAX_HEALTH: f32 = 100.0;
 const ASTEROID_HIT_IFRAMES: f32 = 0.5;
 /// Cull enemies that wander farther than this from the player
 const ENEMY_CULL_DIST: f32 = 7000.0;
+/// Duration of the red damage-flash overlay
+const DAMAGE_FLASH_DURATION: f32 = 0.25;
+/// Duration of the death screen before respawn is available
+const DEATH_SCREEN_DELAY: f32 = 1.5;
 
 pub(crate) struct Game {
     player: Player,
@@ -27,6 +31,12 @@ pub(crate) struct Game {
 
     /// Brief pickup notification: (message, rarity color, seconds remaining)
     pickup_notice: Option<(String, Color, f32)>,
+
+    /// Red flash timer when taking damage (counts down from DAMAGE_FLASH_DURATION)
+    damage_flash: f32,
+    /// true when player is dead; timer counts down before respawn is allowed
+    dead: bool,
+    death_timer: f32,
 
     camera: Camera2D,
     world: World,
@@ -50,6 +60,10 @@ impl Game {
 
             pickup_notice: None,
 
+            damage_flash: 0.0,
+            dead: false,
+            death_timer: 0.0,
+
             camera: Camera2D {
                 zoom: vec2(1.0 / 640.0, 1.0 / 360.0),
                 ..Default::default()
@@ -64,6 +78,24 @@ impl Game {
 
     pub fn update(&mut self) {
         let dt = get_frame_time();
+
+        // ── Damage flash countdown ───────────────────────────────────────────
+        self.damage_flash = (self.damage_flash - dt).max(0.0);
+
+        // ── Death screen ─────────────────────────────────────────────────────
+        if self.dead {
+            self.death_timer = (self.death_timer - dt).max(0.0);
+            let kb = InputState::from_keyboard();
+            let touch = self.mobile.update(false);
+            let input = kb.merge(&touch);
+            if self.death_timer <= 0.0 && (input.interact || input.fire_main) {
+                self.respawn();
+            }
+            let aspect = screen_width() / screen_height();
+            self.camera.target = self.player.pos;
+            self.camera.zoom = vec2(1.0 / (360.0 * aspect), 1.0 / 360.0);
+            return;
+        }
 
         // ── Input ─────────────────────────────────────────────────────────────
         let near_planet = self.world.nearby_planet_name(self.player.pos).is_some()
@@ -135,8 +167,8 @@ impl Game {
             let pos = self.projectiles[i].pos;
             let damage = self.projectiles[i].damage;
 
-            // Check asteroid hit first
-            if self.world.remove_asteroid_hit(pos, 3.0) {
+            // Check asteroid hit first (fragments are spawned inside remove_asteroid_hit)
+            if self.world.remove_asteroid_hit(pos, 3.0).is_some() {
                 self.projectiles.swap_remove(i);
                 continue;
             }
@@ -200,13 +232,25 @@ impl Game {
                 true
             }
         });
-        self.player_health -= player_damage;
+        if player_damage > 0.0 {
+            self.player_health -= player_damage;
+            self.damage_flash = DAMAGE_FLASH_DURATION;
+        }
 
         // ── Collision: player → asteroids ────────────────────────────────────
         self.asteroid_iframes = (self.asteroid_iframes - dt).max(0.0);
         if self.asteroid_iframes == 0.0 && self.world.overlaps_asteroid(player_pos, PLAYER_RADIUS) {
             self.player_health -= 10.0;
             self.asteroid_iframes = ASTEROID_HIT_IFRAMES;
+            self.damage_flash = DAMAGE_FLASH_DURATION;
+        }
+
+        // ── Death check ─────────────────────────────────────────────────────
+        if self.player_health <= 0.0 {
+            self.player_health = 0.0;
+            self.dead = true;
+            self.death_timer = DEATH_SCREEN_DELAY;
+            return;
         }
 
         // ── Loot pickup ───────────────────────────────────────────────────────
@@ -252,6 +296,20 @@ impl Game {
         self.camera.zoom = vec2(1.0 / (360.0 * aspect), 1.0 / 360.0);
     }
 
+    fn respawn(&mut self) {
+        self.dead = false;
+        self.player_health = PLAYER_MAX_HEALTH;
+        self.damage_flash = 0.0;
+        self.asteroid_iframes = 1.0; // brief invincibility on respawn
+        self.projectiles.clear();
+        self.enemies.clear();
+        // Keep credits and loadout — just reset position and health
+        self.player.pos = Vec2::ZERO;
+        self.player.vel = Vec2::ZERO;
+        self.world = World::new();
+        self.loot_drops.clear();
+    }
+
     pub fn draw(&self) {
         clear_background(Color::new(0.02, 0.02, 0.06, 1.0));
 
@@ -272,10 +330,28 @@ impl Game {
 
         set_default_camera();
 
+        // ── Damage flash overlay ────────────────────────────────────────────
+        if self.damage_flash > 0.0 {
+            let alpha = (self.damage_flash / DAMAGE_FLASH_DURATION).min(1.0) * 0.35;
+            draw_rectangle(
+                0.0,
+                0.0,
+                screen_width(),
+                screen_height(),
+                Color::new(1.0, 0.0, 0.0, alpha),
+            );
+        }
+
         self.draw_hud();
         if let Some(ref name) = self.planet_menu {
             self.draw_planet_menu(name);
         }
+
+        // ── Death overlay ───────────────────────────────────────────────────
+        if self.dead {
+            self.draw_death_screen();
+        }
+
         let near_planet = self.world.nearby_planet_name(self.player.pos).is_some()
             || self.planet_menu.is_some();
         self.mobile.draw(near_planet);
@@ -533,5 +609,44 @@ impl Game {
                 Color::new(0.3, 0.3, 0.3, 1.0),
             );
         }
+    }
+
+    fn draw_death_screen(&self) {
+        let sw = screen_width();
+        let sh = screen_height();
+
+        // Full-screen dark red overlay
+        draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.15, 0.0, 0.0, 0.85));
+
+        let title = "DESTROYED";
+        let fs = 36.0_f32;
+        let tw = measure_text(title, None, fs as u16, 1.0).width;
+        draw_text(title, sw * 0.5 - tw * 0.5, sh * 0.4, fs, RED);
+
+        if self.death_timer <= 0.0 {
+            let prompt = "[E] or [SPACE] to respawn";
+            let pfs = 16.0_f32;
+            let pw = measure_text(prompt, None, pfs as u16, 1.0).width;
+            // Blink effect
+            let alpha = ((get_time() * 3.0).sin() * 0.5 + 0.5) as f32;
+            draw_text(
+                prompt,
+                sw * 0.5 - pw * 0.5,
+                sh * 0.55,
+                pfs,
+                Color::new(1.0, 1.0, 1.0, alpha),
+            );
+        }
+
+        let credits_msg = format!("Credits: {}", self.credits);
+        let cfs = 14.0_f32;
+        let cw = measure_text(&credits_msg, None, cfs as u16, 1.0).width;
+        draw_text(
+            &credits_msg,
+            sw * 0.5 - cw * 0.5,
+            sh * 0.65,
+            cfs,
+            GOLD,
+        );
     }
 }

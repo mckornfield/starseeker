@@ -64,12 +64,12 @@ pub(crate) fn gen_chunk(cx: i32, cy: i32) -> Chunk {
 
     // Classify chunk
     let roll = rng.f32();
-    let (chunk_type, planet) = if roll < 0.08 {
+    let (chunk_type, planet) = if roll < 0.15 {
         let p = gen_planet(&mut rng, origin);
         (ChunkType::HasPlanet, Some(p))
-    } else if roll < 0.12 {
+    } else if roll < 0.19 {
         (ChunkType::Derelict, None)
-    } else if roll < 0.38 {
+    } else if roll < 0.45 {
         let tint = gen_nebula_tint(&mut rng);
         (ChunkType::Nebula { tint }, None)
     } else {

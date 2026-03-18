@@ -1,9 +1,10 @@
 pub(crate) mod chunk;
 pub(crate) mod gen;
 
+use crate::entities::asteroid::Asteroid;
 use crate::entities::enemy::EnemyArchetype;
 use chunk::{Chunk, ChunkCoord};
-use macroquad::prelude::Vec2;
+use macroquad::prelude::*;
 use std::collections::HashMap;
 
 pub(crate) struct World {
@@ -64,19 +65,34 @@ impl World {
         None
     }
 
-    /// Hit-test a projectile against all asteroids. Removes the first hit and returns true.
-    pub fn remove_asteroid_hit(&mut self, pos: Vec2, radius: f32) -> bool {
+    /// Hit-test a projectile against all asteroids.
+    /// Removes the first hit and returns Some((pos, base_radius, color)) for fragmentation.
+    pub fn remove_asteroid_hit(&mut self, pos: Vec2, radius: f32) -> Option<(Vec2, f32, Color)> {
         for chunk in self.chunks.values_mut() {
             if let Some(idx) = chunk
                 .asteroids
                 .iter()
                 .position(|a| a.pos.distance(pos) < a.collision_radius() + radius)
             {
-                chunk.asteroids.swap_remove(idx);
-                return true;
+                let a = chunk.asteroids.swap_remove(idx);
+                let info = (a.pos, a.base_radius, a.color);
+                // Spawn child fragments if large enough
+                if a.base_radius > 18.0 {
+                    let child_radius = a.base_radius * 0.45;
+                    let count = if a.base_radius > 40.0 { 3 } else { 2 };
+                    for i in 0..count {
+                        let angle = i as f32 * std::f32::consts::TAU / count as f32
+                            + quad_rand::gen_range(0.0_f32, 1.0);
+                        let offset = Vec2::new(angle.cos(), angle.sin()) * a.base_radius * 0.6;
+                        chunk
+                            .asteroids
+                            .push(Asteroid::new_fragment(a.pos + offset, child_radius, a.color));
+                    }
+                }
+                return Some(info);
             }
         }
-        false
+        None
     }
 
     /// Returns true if the given circle overlaps any asteroid.

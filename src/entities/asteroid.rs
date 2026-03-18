@@ -13,6 +13,27 @@ pub(crate) struct Asteroid {
 }
 
 impl Asteroid {
+    /// Create a smaller fragment asteroid at a given position.
+    pub fn new_fragment(pos: Vec2, base_radius: f32, color: Color) -> Self {
+        let n_verts = 6;
+        let mut vertex_angles = Vec::with_capacity(n_verts);
+        let mut vertex_radii = Vec::with_capacity(n_verts);
+        for i in 0..n_verts {
+            let base_angle = i as f32 * std::f32::consts::TAU / n_verts as f32;
+            vertex_angles.push(base_angle + quad_rand::gen_range(-0.3_f32, 0.3));
+            vertex_radii.push(quad_rand::gen_range(0.55_f32, 1.0));
+        }
+        Self {
+            pos,
+            base_radius,
+            rotation: quad_rand::gen_range(0.0_f32, std::f32::consts::TAU),
+            rot_speed: quad_rand::gen_range(-0.8_f32, 0.8),
+            vertex_angles,
+            vertex_radii,
+            color,
+        }
+    }
+
     pub fn update(&mut self, dt: f32) {
         self.rotation += self.rot_speed * dt;
     }
