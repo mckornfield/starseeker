@@ -483,6 +483,65 @@ impl Game {
             LIGHTGRAY,
         );
 
+        // ── Quest tracker (below HP bar) ────────────────────────────────────
+        if !self.mission_log.active.is_empty() {
+            let qt_x = pad;
+            let mut qt_y = by + bar_h + 16.0;
+            draw_text(
+                "MISSIONS",
+                qt_x,
+                qt_y,
+                11.0,
+                Color::new(0.5, 0.6, 0.8, 0.7),
+            );
+            qt_y += 4.0;
+
+            for m in &self.mission_log.active {
+                qt_y += 14.0;
+                let complete = m.objective.is_complete();
+                let title_color = if complete {
+                    Color::new(0.2, 0.9, 0.3, 0.9)
+                } else {
+                    Color::new(0.75, 0.75, 0.8, 0.85)
+                };
+                draw_text(&m.title, qt_x, qt_y, 12.0, title_color);
+
+                // Mini progress bar
+                qt_y += 10.0;
+                let pbar_w = 140.0;
+                let pbar_h = 3.0;
+                draw_rectangle(
+                    qt_x,
+                    qt_y,
+                    pbar_w,
+                    pbar_h,
+                    Color::new(0.2, 0.2, 0.3, 0.5),
+                );
+                let frac = m.objective.progress_frac().min(1.0);
+                let pbar_color = if complete {
+                    Color::new(0.2, 0.9, 0.3, 0.8)
+                } else {
+                    Color::new(0.3, 0.5, 1.0, 0.7)
+                };
+                draw_rectangle(qt_x, qt_y, pbar_w * frac, pbar_h, pbar_color);
+
+                // Short progress text to the right of the bar
+                let status = if complete {
+                    "DONE".to_string()
+                } else {
+                    m.objective.progress_text()
+                };
+                draw_text(
+                    &status,
+                    qt_x + pbar_w + 6.0,
+                    qt_y + 3.0,
+                    10.0,
+                    Color::new(0.5, 0.55, 0.65, 0.75),
+                );
+                qt_y += 4.0;
+            }
+        }
+
         // Credits
         draw_text(
             &format!("CR {}", self.credits),
