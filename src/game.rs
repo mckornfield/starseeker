@@ -374,7 +374,7 @@ impl Game {
         });
         self.loot_drops.extend(drops);
         for _ in 0..kill_count {
-            if let Some(msg) = self.mission_log.notify_kill() {
+            for msg in self.mission_log.notify_kill() {
                 self.set_notice(msg, GOLD, 3.0);
             }
         }
@@ -423,7 +423,7 @@ impl Game {
             match loot.kind {
                 LootKind::Credits(amt) => {
                     self.credits += amt;
-                    if let Some(msg) = self.mission_log.notify_credits(amt) {
+                    for msg in self.mission_log.notify_credits(amt) {
                         self.set_notice(msg, GOLD, 3.0);
                     }
                 }

@@ -100,9 +100,9 @@ impl MissionLog {
         true
     }
 
-    /// Notify that one enemy was killed. Returns completion message if any mission finished.
-    pub fn notify_kill(&mut self) -> Option<String> {
-        let mut completed_msg = None;
+    /// Notify that one enemy was killed. Returns all missions that just completed.
+    pub fn notify_kill(&mut self) -> Vec<String> {
+        let mut msgs = Vec::new();
         for m in &mut self.active {
             if let Objective::KillEnemies {
                 ref target,
@@ -111,18 +111,18 @@ impl MissionLog {
             {
                 if *killed < *target {
                     *killed += 1;
-                    if *killed >= *target && completed_msg.is_none() {
-                        completed_msg = Some(format!("MISSION COMPLETE: {}", m.title));
+                    if *killed >= *target {
+                        msgs.push(format!("MISSION COMPLETE: {}", m.title));
                     }
                 }
             }
         }
-        completed_msg
+        msgs
     }
 
-    /// Notify that credits were picked up. Returns completion message if any mission finished.
-    pub fn notify_credits(&mut self, amount: u32) -> Option<String> {
-        let mut completed_msg = None;
+    /// Notify that credits were picked up. Returns all missions that just completed.
+    pub fn notify_credits(&mut self, amount: u32) -> Vec<String> {
+        let mut msgs = Vec::new();
         for m in &mut self.active {
             if let Objective::CollectCredits {
                 ref target,
@@ -131,13 +131,13 @@ impl MissionLog {
             {
                 if *collected < *target {
                     *collected += amount;
-                    if *collected >= *target && completed_msg.is_none() {
-                        completed_msg = Some(format!("MISSION COMPLETE: {}", m.title));
+                    if *collected >= *target {
+                        msgs.push(format!("MISSION COMPLETE: {}", m.title));
                     }
                 }
             }
         }
-        completed_msg
+        msgs
     }
 
     /// Notify that a planet was visited. Returns completion message if any mission finished.
@@ -396,8 +396,8 @@ mod tests {
             },
             reward_credits: 50,
         });
-        assert!(log.notify_kill().is_none());
-        assert!(log.notify_kill().is_some());
+        assert!(log.notify_kill().is_empty());
+        assert!(!log.notify_kill().is_empty());
     }
 
     #[test]
@@ -412,8 +412,8 @@ mod tests {
             },
             reward_credits: 60,
         });
-        assert!(log.notify_credits(50).is_none());
-        assert!(log.notify_credits(50).is_some());
+        assert!(log.notify_credits(50).is_empty());
+        assert!(!log.notify_credits(50).is_empty());
     }
 
     #[test]
