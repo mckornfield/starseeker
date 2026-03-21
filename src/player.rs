@@ -102,6 +102,7 @@ impl Player {
                 let speed = w.proj_speed;
                 let dmg = w.damage;
                 let color = w.proj_color;
+                let vel = self.vel;
                 if w.spread {
                     projectiles.push(Projectile::new(
                         self.pos + right * 8.0,
@@ -109,6 +110,7 @@ impl Player {
                         speed,
                         dmg,
                         color,
+                        vel,
                     ));
                     projectiles.push(Projectile::new(
                         self.pos - right * 8.0,
@@ -116,9 +118,10 @@ impl Player {
                         speed,
                         dmg,
                         color,
+                        vel,
                     ));
                 } else {
-                    projectiles.push(Projectile::new(self.pos, forward, speed, dmg, color));
+                    projectiles.push(Projectile::new(self.pos, forward, speed, dmg, color, vel));
                 }
                 self.main_cooldown = w.fire_rate;
             }
@@ -130,7 +133,7 @@ impl Player {
                 let speed = w.proj_speed;
                 let dmg = w.damage;
                 let color = w.proj_color;
-                projectiles.push(Projectile::new(self.pos, forward, speed, dmg, color));
+                projectiles.push(Projectile::new(self.pos, forward, speed, dmg, color, self.vel));
                 self.aux_cooldown = w.fire_rate;
             }
         }

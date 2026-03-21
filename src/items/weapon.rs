@@ -92,7 +92,8 @@ impl WeaponItem {
     }
 
     pub fn stat_summary(&self) -> String {
-        format!("DMG:{:.0}  SPD:{:.0}", self.damage, self.proj_speed)
+        let rof = 1.0 / self.fire_rate;
+        format!("DMG:{:.0}  RoF:{:.1}/s  SPD:{:.0}", self.damage, rof, self.proj_speed)
     }
 }
 
