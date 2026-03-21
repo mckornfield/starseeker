@@ -441,6 +441,12 @@ impl Game {
                             if let Some(old_w) = old {
                                 if self.cargo.len() < MAX_CARGO {
                                     self.cargo.push(Item::Weapon(old_w));
+                                } else {
+                                    self.pickup_notice = Some((
+                                        format!("CARGO FULL — {} lost", old_w.name),
+                                        Color::new(0.9, 0.4, 0.2, 1.0),
+                                        2.5,
+                                    ));
                                 }
                             }
                         }
@@ -455,6 +461,12 @@ impl Game {
                                 );
                                 self.pickup_notice = Some((msg, w.rarity.color(), 2.0));
                                 self.cargo.push(Item::Weapon(w));
+                            } else {
+                                self.pickup_notice = Some((
+                                    format!("CARGO FULL — {} lost", w.name),
+                                    Color::new(0.9, 0.4, 0.2, 1.0),
+                                    2.5,
+                                ));
                             }
                         }
                     }
@@ -466,6 +478,12 @@ impl Game {
                         if let Some(old_t) = old {
                             if self.cargo.len() < MAX_CARGO {
                                 self.cargo.push(Item::Thruster(old_t));
+                            } else {
+                                self.pickup_notice = Some((
+                                    format!("CARGO FULL — {} THRUSTER lost", old_t.rarity.label()),
+                                    Color::new(0.9, 0.4, 0.2, 1.0),
+                                    2.5,
+                                ));
                             }
                         }
                     }
@@ -475,6 +493,12 @@ impl Game {
                                 format!("STASHED [THR] {} THRUSTER", t.rarity.label());
                             self.pickup_notice = Some((msg, t.rarity.color(), 2.0));
                             self.cargo.push(Item::Thruster(t));
+                        } else {
+                            self.pickup_notice = Some((
+                                format!("CARGO FULL — {} THRUSTER lost", t.rarity.label()),
+                                Color::new(0.9, 0.4, 0.2, 1.0),
+                                2.5,
+                            ));
                         }
                     }
                 },
