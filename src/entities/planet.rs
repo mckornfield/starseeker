@@ -54,6 +54,7 @@ impl Planet {
     }
 
     pub fn is_in_range(&self, pos: Vec2) -> bool {
-        self.pos.distance(pos) < self.radius + LAND_RANGE
+        let r = self.radius + LAND_RANGE;
+        self.pos.distance_squared(pos) < r * r
     }
 }

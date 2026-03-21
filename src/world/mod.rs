@@ -76,10 +76,17 @@ impl World {
 
     /// Returns the name of any planet the player is approaching.
     pub fn nearby_planet_name(&self, player_pos: Vec2) -> Option<&str> {
-        for chunk in self.chunks.values() {
-            if let Some(planet) = &chunk.planet {
-                if planet.is_in_range(player_pos) {
-                    return Some(&planet.name);
+        // Planets are large (radius 110-220) + LAND_RANGE 180 = at most 400 units reach.
+        // Only check the player's chunk and its 8 neighbors.
+        let coord = ChunkCoord::from_world_pos(player_pos);
+        for dx in -1i32..=1 {
+            for dy in -1i32..=1 {
+                if let Some(chunk) = self.chunks.get(&(coord.cx + dx, coord.cy + dy)) {
+                    if let Some(planet) = &chunk.planet {
+                        if planet.is_in_range(player_pos) {
+                            return Some(&planet.name);
+                        }
+                    }
                 }
             }
         }
@@ -89,11 +96,19 @@ impl World {
     /// Hit-test a projectile against all asteroids.
     /// Removes the first hit and returns Some((pos, base_radius, color)) for fragmentation.
     pub fn remove_asteroid_hit(&mut self, pos: Vec2, radius: f32) -> Option<(Vec2, f32, Color)> {
-        for chunk in self.chunks.values_mut() {
+        // Only check the projectile's chunk + 8 neighbors — avoids scanning all 25 loaded chunks.
+        let coord = ChunkCoord::from_world_pos(pos);
+        for dx in -1i32..=1 {
+            for dy in -1i32..=1 {
+            let key = (coord.cx + dx, coord.cy + dy);
+            let Some(chunk) = self.chunks.get_mut(&key) else { continue };
             if let Some(idx) = chunk
                 .asteroids
                 .iter()
-                .position(|a| a.pos.distance(pos) < a.collision_radius() + radius)
+                .position(|a| {
+                    let r = a.collision_radius() + radius;
+                    a.pos.distance_squared(pos) < r * r
+                })
             {
                 let a = chunk.asteroids.swap_remove(idx);
                 let info = (a.pos, a.base_radius, a.color);
@@ -120,16 +135,24 @@ impl World {
                 }
                 return Some(info);
             }
-        }
+            } // dy
+        } // dx
         None
     }
 
     /// Returns true if the given circle overlaps any asteroid.
+    /// Only checks the position's chunk + 8 neighbors.
     pub fn overlaps_asteroid(&self, pos: Vec2, radius: f32) -> bool {
-        for chunk in self.chunks.values() {
-            for a in &chunk.asteroids {
-                if a.pos.distance(pos) < a.collision_radius() + radius {
-                    return true;
+        let coord = ChunkCoord::from_world_pos(pos);
+        for dx in -1i32..=1 {
+            for dy in -1i32..=1 {
+                if let Some(chunk) = self.chunks.get(&(coord.cx + dx, coord.cy + dy)) {
+                    for a in &chunk.asteroids {
+                        let r = a.collision_radius() + radius;
+                        if a.pos.distance_squared(pos) < r * r {
+                            return true;
+                        }
+                    }
                 }
             }
         }

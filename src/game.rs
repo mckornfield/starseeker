@@ -333,7 +333,8 @@ impl Game {
             // Check enemy hit
             let mut hit = false;
             for enemy in &mut self.enemies {
-                if pos.distance(enemy.pos) < enemy.archetype.hit_radius() {
+                let r = enemy.archetype.hit_radius();
+                if pos.distance_squared(enemy.pos) < r * r {
                     enemy.take_damage(damage);
                     hit = true;
                     break;
@@ -389,7 +390,9 @@ impl Game {
         let player_pos = self.player.pos;
         let mut player_damage = 0.0_f32;
         self.projectiles.retain(|p| {
-            if p.owner == Owner::Enemy && p.pos.distance(player_pos) < PLAYER_RADIUS {
+            if p.owner == Owner::Enemy
+                && p.pos.distance_squared(player_pos) < PLAYER_RADIUS * PLAYER_RADIUS
+            {
                 player_damage += p.damage;
                 false
             } else {
@@ -422,7 +425,7 @@ impl Game {
         let mut i = self.loot_drops.len();
         while i > 0 {
             i -= 1;
-            if self.loot_drops[i].pos.distance(player_pos) >= PICKUP_RANGE {
+            if self.loot_drops[i].pos.distance_squared(player_pos) >= PICKUP_RANGE * PICKUP_RANGE {
                 continue;
             }
             let loot = self.loot_drops.swap_remove(i);
@@ -514,7 +517,7 @@ impl Game {
         // ── Cull far enemies ──────────────────────────────────────────────────
         let player_pos = self.player.pos;
         self.enemies
-            .retain(|e| e.pos.distance(player_pos) < ENEMY_CULL_DIST);
+            .retain(|e| e.pos.distance_squared(player_pos) < ENEMY_CULL_DIST * ENEMY_CULL_DIST);
 
         // ── Camera ────────────────────────────────────────────────────────────
         let aspect = screen_width() / screen_height();
