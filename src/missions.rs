@@ -1,5 +1,108 @@
-use crate::items::{Item, ThrusterItem, WeaponItem};
+use crate::items::{Item, Rarity, ThrusterItem, WeaponItem, WeaponSlot};
 use macroquad::prelude::*;
+
+// ── Local seeded RNG (LCG) ───────────────────────────────────────────────────
+// Used in generation functions so we never call quad_rand::srand(), which would
+// corrupt the global RNG state used for enemy/loot drops.
+
+struct LocalRng(u64);
+
+impl LocalRng {
+    fn new(seed: u64) -> Self {
+        Self(seed.wrapping_add(1)) // ensure non-zero
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        // Knuth multiplicative LCG
+        self.0 = self.0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        self.0
+    }
+
+    fn gen_range_u32(&mut self, lo: u32, hi: u32) -> u32 {
+        if hi <= lo {
+            return lo;
+        }
+        lo + (self.next_u64() % (hi - lo) as u64) as u32
+    }
+
+    fn gen_range_f32(&mut self, lo: f32, hi: f32) -> f32 {
+        let t = (self.next_u64() as f32) / (u64::MAX as f32);
+        lo + t * (hi - lo)
+    }
+
+    fn roll_rarity(&mut self) -> Rarity {
+        let r = self.gen_range_f32(0.0, 1.0);
+        if r < 0.50 {
+            Rarity::Common
+        } else if r < 0.80 {
+            Rarity::Uncommon
+        } else if r < 0.95 {
+            Rarity::Rare
+        } else {
+            Rarity::Epic
+        }
+    }
+}
+
+fn hsv_to_color_local(h: f32) -> Color {
+    let h6 = h * 6.0;
+    let i = h6 as u32;
+    let f = h6 - i as f32;
+    let (r, g, b) = match i % 6 {
+        0 => (1.0, f, 0.0),
+        1 => (1.0 - f, 1.0, 0.0),
+        2 => (0.0, 1.0, f),
+        3 => (0.0, 1.0 - f, 1.0),
+        4 => (f, 0.0, 1.0),
+        _ => (1.0, 0.0, 1.0 - f),
+    };
+    Color::new(r, g, b, 1.0)
+}
+
+fn gen_thruster(rng: &mut LocalRng) -> ThrusterItem {
+    let rarity = rng.roll_rarity();
+    let extra = rarity.budget_mult() - 1.0;
+    ThrusterItem {
+        rarity,
+        speed_mult: 1.0 + 0.08 + extra * rng.gen_range_f32(0.4, 0.9),
+        accel_mult: 1.0 + 0.08 + extra * rng.gen_range_f32(0.3, 0.8),
+        color: hsv_to_color_local(rng.gen_range_f32(0.0, 1.0)),
+    }
+}
+
+fn gen_weapon(rng: &mut LocalRng, slot: WeaponSlot) -> WeaponItem {
+    const PREFIXES: &[&str] = &[
+        "VOLT", "PLASMA", "ION", "PHASE", "CRYO", "FLUX", "NULL", "SOLAR", "DARK", "HYPER",
+    ];
+    const NOUNS: &[&str] = &[
+        "BLASTER", "CANNON", "RIFLE", "LANCE", "BOLT", "PULSAR", "VORTEX", "NOVA", "LANCER",
+        "SPIKE",
+    ];
+    let rarity = rng.roll_rarity();
+    let budget = rarity.budget_mult();
+    let (base_dmg, base_rate, base_speed) = match slot {
+        WeaponSlot::Main => (20.0_f32, 0.18_f32, 600.0_f32),
+        WeaponSlot::Aux => (35.0_f32, 0.65_f32, 550.0_f32),
+    };
+    let dmg_mult = budget * rng.gen_range_f32(0.85, 1.15);
+    let speed_mult = (0.8 + budget * 0.25) * rng.gen_range_f32(0.9, 1.1);
+    let rate_div = budget * rng.gen_range_f32(0.9, 1.1);
+    let proj_color = hsv_to_color_local(rng.gen_range_f32(0.0, 1.0));
+    let prefix = PREFIXES[rng.gen_range_u32(0, PREFIXES.len() as u32) as usize];
+    let noun = NOUNS[rng.gen_range_u32(0, NOUNS.len() as u32) as usize];
+    WeaponItem {
+        name: format!("{} {}", prefix, noun),
+        rarity,
+        slot,
+        damage: base_dmg * dmg_mult,
+        fire_rate: (base_rate / rate_div).max(0.05),
+        proj_speed: base_speed * speed_mult,
+        proj_color,
+        spread: matches!(slot, WeaponSlot::Main),
+    }
+}
 
 /// Maximum number of missions a player can have active at once.
 const MAX_ACTIVE: usize = 3;
@@ -264,19 +367,20 @@ pub(crate) fn gen_planet_missions(
     active_titles: &[String],
 ) -> Vec<Mission> {
     // Simple seed from planet name + completion count so offerings feel stable
-    // but refresh after completing missions
+    // but refresh after completing missions. Uses a local RNG so we never call
+    // quad_rand::srand(), which would corrupt global enemy/loot RNG state.
     let seed: u64 = planet_name
         .bytes()
         .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64))
         .wrapping_add(completed_count as u64 * 0x9e3779b9);
-    quad_rand::srand(seed);
+    let mut rng = LocalRng::new(seed);
 
     let reward_scale = 1.0 + completed_count as f32 * 0.1;
     let mut missions = Vec::new();
 
     // Always offer a kill mission
-    let ki = quad_rand::gen_range(0_u32, KILL_TITLES.len() as u32) as usize;
-    let kill_target = quad_rand::gen_range(3_u32, 10);
+    let ki = rng.gen_range_u32(0, KILL_TITLES.len() as u32) as usize;
+    let kill_target = rng.gen_range_u32(3, 10);
     let kill_reward = ((kill_target as f32 * 12.0) * reward_scale) as u32;
     let kill_mission = Mission {
         title: KILL_TITLES[ki].to_string(),
@@ -292,8 +396,8 @@ pub(crate) fn gen_planet_missions(
     }
 
     // Always offer a collect mission
-    let ci = quad_rand::gen_range(0_u32, COLLECT_TITLES.len() as u32) as usize;
-    let collect_target = quad_rand::gen_range(50_u32, 250);
+    let ci = rng.gen_range_u32(0, COLLECT_TITLES.len() as u32) as usize;
+    let collect_target = rng.gen_range_u32(50, 250);
     let collect_reward = ((collect_target as f32 * 0.6) * reward_scale) as u32;
     let collect_mission = Mission {
         title: COLLECT_TITLES[ci].to_string(),
@@ -314,8 +418,8 @@ pub(crate) fn gen_planet_missions(
         .filter(|n| *n != planet_name)
         .collect();
     if !other_planets.is_empty() {
-        let vi = quad_rand::gen_range(0_u32, VISIT_TITLES.len() as u32) as usize;
-        let pi = quad_rand::gen_range(0_u32, other_planets.len() as u32) as usize;
+        let vi = rng.gen_range_u32(0, VISIT_TITLES.len() as u32) as usize;
+        let pi = rng.gen_range_u32(0, other_planets.len() as u32) as usize;
         let dest = other_planets[pi].clone();
         let visit_reward = (80.0 * reward_scale) as u32;
         let briefing = VISIT_BRIEFS[vi].replace("{}", &dest);
@@ -337,24 +441,26 @@ pub(crate) fn gen_planet_missions(
 }
 
 /// Generate procedural shop stock for a planet, seeded by planet name.
+/// Uses a local RNG so we never call quad_rand::srand(), which would corrupt
+/// global enemy/loot RNG state.
 pub(crate) fn gen_shop_stock(planet_name: &str) -> Vec<Item> {
     // Use a distinct salt so shop seed differs from mission seed
     let seed: u64 = planet_name
         .bytes()
         .fold(0u64, |acc, b| acc.wrapping_mul(37).wrapping_add(b as u64))
         .wrapping_add(0xdeadbeef_1337cafe);
-    quad_rand::srand(seed);
+    let mut rng = LocalRng::new(seed);
 
-    let count = quad_rand::gen_range(4_u32, 7);
+    let count = rng.gen_range_u32(4, 7);
     let mut items = Vec::with_capacity(count as usize);
     for _ in 0..count {
-        let roll = quad_rand::gen_range(0.0_f32, 1.0);
+        let roll = rng.gen_range_f32(0.0, 1.0);
         if roll < 0.25 {
-            items.push(Item::Thruster(ThrusterItem::gen()));
+            items.push(Item::Thruster(gen_thruster(&mut rng)));
         } else if roll < 0.65 {
-            items.push(Item::Weapon(WeaponItem::gen_main()));
+            items.push(Item::Weapon(gen_weapon(&mut rng, WeaponSlot::Main)));
         } else {
-            items.push(Item::Weapon(WeaponItem::gen_aux()));
+            items.push(Item::Weapon(gen_weapon(&mut rng, WeaponSlot::Aux)));
         }
     }
     items
