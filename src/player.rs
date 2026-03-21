@@ -36,11 +36,17 @@ impl Player {
         }
     }
 
-    pub fn equip_weapon(&mut self, w: WeaponItem) -> Option<(String, crate::items::Rarity)> {
+    pub fn equip_weapon(
+        &mut self,
+        w: WeaponItem,
+    ) -> Result<(String, crate::items::Rarity, Option<WeaponItem>), WeaponItem> {
         self.loadout.try_equip_weapon(w)
     }
 
-    pub fn equip_thruster(&mut self, t: ThrusterItem) -> Option<crate::items::Rarity> {
+    pub fn equip_thruster(
+        &mut self,
+        t: ThrusterItem,
+    ) -> Result<(crate::items::Rarity, Option<ThrusterItem>), ThrusterItem> {
         self.loadout.try_equip_thruster(t)
     }
 

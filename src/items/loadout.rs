@@ -16,9 +16,13 @@ impl Loadout {
     }
 
     /// Equip weapon if slot is empty or new item has equal/higher rarity.
-    /// Returns (name, rarity) of the equipped item if it was accepted.
+    /// On success: returns Ok((name, rarity, displaced_weapon)).
+    /// On failure: returns Err(weapon) so it can be stashed.
     #[must_use]
-    pub fn try_equip_weapon(&mut self, w: WeaponItem) -> Option<(String, Rarity)> {
+    pub fn try_equip_weapon(
+        &mut self,
+        w: WeaponItem,
+    ) -> Result<(String, Rarity, Option<WeaponItem>), WeaponItem> {
         let slot = match w.slot {
             WeaponSlot::Main => &mut self.main,
             WeaponSlot::Aux => &mut self.aux,
@@ -26,17 +30,22 @@ impl Loadout {
         let should_equip = slot.as_ref().map(|e| w.rarity >= e.rarity).unwrap_or(true);
         if should_equip {
             let info = (w.name.clone(), w.rarity);
+            let old = slot.take();
             *slot = Some(w);
-            Some(info)
+            Ok((info.0, info.1, old))
         } else {
-            None
+            Err(w)
         }
     }
 
     /// Equip thruster if slot is empty or new item has equal/higher rarity.
-    /// Returns the rarity if accepted.
+    /// On success: returns Ok((rarity, displaced_thruster)).
+    /// On failure: returns Err(thruster) so it can be stashed.
     #[must_use]
-    pub fn try_equip_thruster(&mut self, t: ThrusterItem) -> Option<Rarity> {
+    pub fn try_equip_thruster(
+        &mut self,
+        t: ThrusterItem,
+    ) -> Result<(Rarity, Option<ThrusterItem>), ThrusterItem> {
         let should_equip = self
             .thruster
             .as_ref()
@@ -44,11 +53,43 @@ impl Loadout {
             .unwrap_or(true);
         if should_equip {
             let r = t.rarity;
+            let old = self.thruster.take();
             self.thruster = Some(t);
-            Some(r)
+            Ok((r, old))
         } else {
-            None
+            Err(t)
         }
+    }
+
+    /// Force-equip a weapon, returning the displaced item (if any).
+    pub fn force_equip_weapon(&mut self, w: WeaponItem) -> Option<WeaponItem> {
+        let slot = match w.slot {
+            WeaponSlot::Main => &mut self.main,
+            WeaponSlot::Aux => &mut self.aux,
+        };
+        let old = slot.take();
+        *slot = Some(w);
+        old
+    }
+
+    /// Force-equip a thruster, returning the displaced item (if any).
+    pub fn force_equip_thruster(&mut self, t: ThrusterItem) -> Option<ThrusterItem> {
+        let old = self.thruster.take();
+        self.thruster = Some(t);
+        old
+    }
+
+    /// Remove equipped weapon from a slot, returning it.
+    pub fn unequip_weapon(&mut self, slot: WeaponSlot) -> Option<WeaponItem> {
+        match slot {
+            WeaponSlot::Main => self.main.take(),
+            WeaponSlot::Aux => self.aux.take(),
+        }
+    }
+
+    /// Remove equipped thruster, returning it.
+    pub fn unequip_thruster(&mut self) -> Option<ThrusterItem> {
+        self.thruster.take()
     }
 }
 
@@ -94,7 +135,9 @@ mod tests {
             thruster: None,
         };
         let result = l.try_equip_weapon(make_weapon(WeaponSlot::Main, Rarity::Common));
-        assert!(result.is_some());
+        assert!(result.is_ok());
+        let (_, _, old) = result.unwrap();
+        assert!(old.is_none());
         assert!(l.main.is_some());
     }
 
@@ -106,7 +149,10 @@ mod tests {
             thruster: None,
         };
         let result = l.try_equip_weapon(make_weapon(WeaponSlot::Main, Rarity::Rare));
-        assert!(result.is_some());
+        assert!(result.is_ok());
+        let (_, _, old) = result.unwrap();
+        assert!(old.is_some());
+        assert_eq!(old.unwrap().rarity, Rarity::Common);
         assert_eq!(l.main.as_ref().unwrap().rarity, Rarity::Rare);
     }
 
@@ -118,7 +164,7 @@ mod tests {
             thruster: None,
         };
         let result = l.try_equip_weapon(make_weapon(WeaponSlot::Main, Rarity::Common));
-        assert!(result.is_none());
+        assert!(result.is_err());
         assert_eq!(l.main.as_ref().unwrap().rarity, Rarity::Rare);
     }
 
@@ -130,7 +176,7 @@ mod tests {
             thruster: None,
         };
         let result = l.try_equip_weapon(make_weapon(WeaponSlot::Main, Rarity::Uncommon));
-        assert!(result.is_some());
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -141,7 +187,7 @@ mod tests {
             thruster: None,
         };
         let result = l.try_equip_thruster(make_thruster(Rarity::Common));
-        assert!(result.is_some());
+        assert!(result.is_ok());
         assert!(l.thruster.is_some());
     }
 
@@ -153,7 +199,7 @@ mod tests {
             thruster: Some(make_thruster(Rarity::Epic)),
         };
         let result = l.try_equip_thruster(make_thruster(Rarity::Common));
-        assert!(result.is_none());
+        assert!(result.is_err());
         assert_eq!(l.thruster.as_ref().unwrap().rarity, Rarity::Epic);
     }
 
@@ -168,5 +214,26 @@ mod tests {
         assert!(l.main.is_none());
         assert!(l.aux.is_some());
         assert_eq!(l.aux.as_ref().unwrap().rarity, Rarity::Rare);
+    }
+
+    #[test]
+    fn force_equip_returns_old_item() {
+        let mut l = Loadout {
+            main: Some(make_weapon(WeaponSlot::Main, Rarity::Epic)),
+            aux: None,
+            thruster: None,
+        };
+        let old = l.force_equip_weapon(make_weapon(WeaponSlot::Main, Rarity::Common));
+        assert!(old.is_some());
+        assert_eq!(old.unwrap().rarity, Rarity::Epic);
+        assert_eq!(l.main.as_ref().unwrap().rarity, Rarity::Common);
+    }
+
+    #[test]
+    fn unequip_weapon_returns_item() {
+        let mut l = Loadout::starter();
+        let w = l.unequip_weapon(WeaponSlot::Main);
+        assert!(w.is_some());
+        assert!(l.main.is_none());
     }
 }

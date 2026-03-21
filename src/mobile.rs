@@ -95,7 +95,7 @@ impl MobileOverlay {
         self.buttons[1].center = vec2(lx, ly + gap * 0.65);    // brake  ▼
         self.buttons[2].center = vec2(lx - gap, ly);           // left   ◄
         self.buttons[3].center = vec2(lx + gap, ly);           // right  ►
-        self.buttons[6].center = vec2(lx, ly);                 // STAB   center of d-pad
+        self.buttons[6].center = vec2(lx, ly - gap * 0.25);    // STAB   slightly above d-pad center
 
         // Right weapon cluster
         let rx = sw - pad - gap * 0.3;

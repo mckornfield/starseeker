@@ -1,3 +1,4 @@
+use crate::items::{Item, ThrusterItem, WeaponItem};
 use macroquad::prelude::*;
 
 /// Maximum number of missions a player can have active at once.
@@ -179,20 +180,23 @@ impl MissionLog {
 pub(crate) enum MenuTab {
     Missions,
     Active,
+    Shop,
 }
 
 pub(crate) struct PlanetMenu {
     pub name: String,
     pub available: Vec<Mission>,
+    pub shop_stock: Vec<Item>,
     pub selected: usize,
     pub tab: MenuTab,
 }
 
 impl PlanetMenu {
-    pub fn new(name: String, available: Vec<Mission>) -> Self {
+    pub fn new(name: String, available: Vec<Mission>, shop_stock: Vec<Item>) -> Self {
         Self {
             name,
             available,
+            shop_stock,
             selected: 0,
             tab: MenuTab::Missions,
         }
@@ -330,6 +334,30 @@ pub(crate) fn gen_planet_missions(
     missions
 }
 
+/// Generate procedural shop stock for a planet, seeded by planet name.
+pub(crate) fn gen_shop_stock(planet_name: &str) -> Vec<Item> {
+    // Use a distinct salt so shop seed differs from mission seed
+    let seed: u64 = planet_name
+        .bytes()
+        .fold(0u64, |acc, b| acc.wrapping_mul(37).wrapping_add(b as u64))
+        .wrapping_add(0xdeadbeef_1337cafe);
+    quad_rand::srand(seed);
+
+    let count = quad_rand::gen_range(4_u32, 7);
+    let mut items = Vec::with_capacity(count as usize);
+    for _ in 0..count {
+        let roll = quad_rand::gen_range(0.0_f32, 1.0);
+        if roll < 0.25 {
+            items.push(Item::Thruster(ThrusterItem::gen()));
+        } else if roll < 0.65 {
+            items.push(Item::Weapon(WeaponItem::gen_main()));
+        } else {
+            items.push(Item::Weapon(WeaponItem::gen_aux()));
+        }
+    }
+    items
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -436,4 +464,12 @@ mod tests {
         assert!(missions.len() >= 2);
         assert!(missions.len() <= 3);
     }
+
+    #[test]
+    fn gen_shop_stock_produces_items() {
+        let stock = gen_shop_stock("TestPlanet");
+        assert!(stock.len() >= 4);
+        assert!(stock.len() <= 6);
+    }
+
 }

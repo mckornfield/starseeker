@@ -28,6 +28,15 @@ impl Rarity {
         }
     }
 
+    pub fn base_price(self) -> u32 {
+        match self {
+            Rarity::Common => 50,
+            Rarity::Uncommon => 150,
+            Rarity::Rare => 400,
+            Rarity::Epic => 1000,
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Rarity::Common => "CMN",

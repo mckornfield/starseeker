@@ -1,6 +1,6 @@
 use super::rarity::Rarity;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct ThrusterItem {
     pub rarity: Rarity,
     pub speed_mult: f32,

@@ -14,7 +14,7 @@ pub(crate) enum WeaponSlot {
     Aux,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct WeaponItem {
     pub name: String,
     pub rarity: Rarity,

@@ -1,7 +1,7 @@
 use crate::entities::enemy::Enemy;
 use crate::entities::loot::{LootDrop, LootKind, PICKUP_RANGE};
 use crate::input::InputState;
-use crate::items::{ThrusterItem, WeaponItem};
+use crate::items::{Item, Rarity, ThrusterItem, WeaponItem, WeaponSlot};
 use crate::missions::{self, MenuTab, MissionLog, PlanetMenu};
 use crate::mobile::MobileOverlay;
 use crate::player::Player;
@@ -19,6 +19,8 @@ const ENEMY_CULL_DIST: f32 = 7000.0;
 const DAMAGE_FLASH_DURATION: f32 = 0.25;
 /// Duration of the death screen before respawn is available
 const DEATH_SCREEN_DELAY: f32 = 1.5;
+/// Maximum cargo hold capacity
+const MAX_CARGO: usize = 40;
 
 pub(crate) struct Game {
     player: Player,
@@ -29,6 +31,7 @@ pub(crate) struct Game {
     enemies: Vec<Enemy>,
     loot_drops: Vec<LootDrop>,
     credits: u32,
+    cargo: Vec<Item>,
 
     /// Brief pickup notification: (message, rarity color, seconds remaining)
     pickup_notice: Option<(String, Color, f32)>,
@@ -47,6 +50,8 @@ pub(crate) struct Game {
 
     planet_menu: Option<PlanetMenu>,
     show_map: bool,
+    show_inventory: bool,
+    inv_cursor: usize,
     prev_interact: bool,
 }
 
@@ -61,6 +66,7 @@ impl Game {
             enemies: Vec::new(),
             loot_drops: Vec::new(),
             credits: 0,
+            cargo: Vec::new(),
 
             pickup_notice: None,
 
@@ -79,6 +85,8 @@ impl Game {
 
             planet_menu: None,
             show_map: false,
+            show_inventory: false,
+            inv_cursor: 0,
             prev_interact: false,
         }
     }
@@ -111,6 +119,25 @@ impl Game {
         let touch = self.mobile.update(near_planet);
         let input = kb.merge(&touch);
 
+        // ── Inventory toggle (I or Tab) ─────────────────────────────────────
+        if is_key_pressed(KeyCode::I) || is_key_pressed(KeyCode::Tab) {
+            if self.planet_menu.is_none() {
+                self.show_inventory = !self.show_inventory;
+                if self.show_inventory {
+                    self.inv_cursor = 0;
+                }
+            }
+        }
+
+        // ── Inventory input & pause ─────────────────────────────────────────
+        if self.show_inventory {
+            self.update_inventory();
+            let aspect = screen_width() / screen_height();
+            self.camera.target = self.player.pos;
+            self.camera.zoom = vec2(1.0 / (360.0 * aspect), 1.0 / 360.0);
+            return;
+        }
+
         // ── Planet menu toggle (edge-detected) ────────────────────────────────
         let interact_just = input.interact && !self.prev_interact;
         self.prev_interact = input.interact;
@@ -131,13 +158,14 @@ impl Game {
                     &nearby,
                     &active_titles,
                 );
-                self.planet_menu = Some(PlanetMenu::new(name.to_string(), available));
+                let shop_stock = missions::gen_shop_stock(name);
+                self.planet_menu = Some(PlanetMenu::new(name.to_string(), available, shop_stock));
             }
         }
 
         // ── Planet menu input & pause ────────────────────────────────────────
         if let Some(ref mut menu) = self.planet_menu {
-            // Tab switching: 1 = Missions, 2 = Active
+            // Tab switching: 1 = Missions, 2 = Active, 3 = Shop
             if is_key_pressed(KeyCode::Key1) {
                 menu.tab = MenuTab::Missions;
                 menu.selected = 0;
@@ -146,11 +174,16 @@ impl Game {
                 menu.tab = MenuTab::Active;
                 menu.selected = 0;
             }
+            if is_key_pressed(KeyCode::Key3) {
+                menu.tab = MenuTab::Shop;
+                menu.selected = 0;
+            }
 
             // Selection movement
             let list_len = match menu.tab {
                 MenuTab::Missions => menu.available.len(),
                 MenuTab::Active => self.mission_log.active.len(),
+                MenuTab::Shop => menu.shop_stock.len() + self.cargo.len(),
             };
             if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::W) {
                 if menu.selected > 0 {
@@ -163,7 +196,7 @@ impl Game {
                 }
             }
 
-            // Accept mission / Claim reward with Space
+            // Accept mission / Claim reward / Buy / Sell with Space
             if is_key_pressed(KeyCode::Space) {
                 match menu.tab {
                     MenuTab::Missions => {
@@ -184,6 +217,47 @@ impl Game {
                             self.credits += reward;
                             self.pickup_notice =
                                 Some((format!("REWARD: +{} CR", reward), GOLD, 3.0));
+                        }
+                    }
+                    MenuTab::Shop => {
+                        let shop_len = menu.shop_stock.len();
+                        if menu.selected < shop_len {
+                            // Buy from shop
+                            let price = menu.shop_stock[menu.selected].buy_price();
+                            if self.credits >= price && self.cargo.len() < MAX_CARGO {
+                                let item = menu.shop_stock.remove(menu.selected);
+                                let msg = format!(
+                                    "BOUGHT {} {} (-{} CR)",
+                                    item.rarity().label(),
+                                    item.name(),
+                                    price
+                                );
+                                self.credits -= price;
+                                self.cargo.push(item);
+                                self.pickup_notice = Some((msg, SKYBLUE, 2.5));
+                                if menu.selected > 0 && menu.selected >= menu.shop_stock.len() {
+                                    menu.selected -= 1;
+                                }
+                            }
+                        } else {
+                            // Sell from cargo
+                            let cargo_idx = menu.selected - shop_len;
+                            if cargo_idx < self.cargo.len() {
+                                let item = self.cargo.remove(cargo_idx);
+                                let price = item.sell_price();
+                                let msg = format!(
+                                    "SOLD {} {} (+{} CR)",
+                                    item.rarity().label(),
+                                    item.name(),
+                                    price
+                                );
+                                self.credits += price;
+                                self.pickup_notice = Some((msg, GOLD, 2.5));
+                                let new_total = menu.shop_stock.len() + self.cargo.len();
+                                if menu.selected > 0 && menu.selected >= new_total {
+                                    menu.selected -= 1;
+                                }
+                            }
                         }
                     }
                 }
@@ -355,20 +429,55 @@ impl Game {
                 }
                 LootKind::Weapon(w) => {
                     let slot_label = match w.slot {
-                        crate::items::WeaponSlot::Main => "MAIN",
-                        crate::items::WeaponSlot::Aux => "AUX",
+                        WeaponSlot::Main => "MAIN",
+                        WeaponSlot::Aux => "AUX",
                     };
-                    if let Some((name, rarity)) = self.player.equip_weapon(w) {
-                        let msg = format!("EQUIPPED [{}] {} {}", slot_label, rarity.label(), name);
-                        self.pickup_notice = Some((msg, rarity.color(), 2.5));
+                    match self.player.equip_weapon(w) {
+                        Ok((name, rarity, old)) => {
+                            let msg =
+                                format!("EQUIPPED [{}] {} {}", slot_label, rarity.label(), name);
+                            self.pickup_notice = Some((msg, rarity.color(), 2.5));
+                            // Stash displaced item in cargo
+                            if let Some(old_w) = old {
+                                if self.cargo.len() < MAX_CARGO {
+                                    self.cargo.push(Item::Weapon(old_w));
+                                }
+                            }
+                        }
+                        Err(w) => {
+                            // Didn't auto-equip — stash in cargo
+                            if self.cargo.len() < MAX_CARGO {
+                                let msg = format!(
+                                    "STASHED [{}] {} {}",
+                                    slot_label,
+                                    w.rarity.label(),
+                                    w.name
+                                );
+                                self.pickup_notice = Some((msg, w.rarity.color(), 2.0));
+                                self.cargo.push(Item::Weapon(w));
+                            }
+                        }
                     }
                 }
-                LootKind::Thruster(t) => {
-                    if let Some(rarity) = self.player.equip_thruster(t) {
+                LootKind::Thruster(t) => match self.player.equip_thruster(t) {
+                    Ok((rarity, old)) => {
                         let msg = format!("EQUIPPED [THR] {} THRUSTER", rarity.label());
                         self.pickup_notice = Some((msg, rarity.color(), 2.5));
+                        if let Some(old_t) = old {
+                            if self.cargo.len() < MAX_CARGO {
+                                self.cargo.push(Item::Thruster(old_t));
+                            }
+                        }
                     }
-                }
+                    Err(t) => {
+                        if self.cargo.len() < MAX_CARGO {
+                            let msg =
+                                format!("STASHED [THR] {} THRUSTER", t.rarity.label());
+                            self.pickup_notice = Some((msg, t.rarity.color(), 2.0));
+                            self.cargo.push(Item::Thruster(t));
+                        }
+                    }
+                },
             }
         }
 
@@ -383,6 +492,93 @@ impl Game {
         self.camera.zoom = vec2(1.0 / (360.0 * aspect), 1.0 / 360.0);
     }
 
+    fn update_inventory(&mut self) {
+        // Total list: 3 equipment slots + cargo items
+        let total = 3 + self.cargo.len();
+
+        if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::W) {
+            if self.inv_cursor > 0 {
+                self.inv_cursor -= 1;
+            }
+        }
+        if is_key_pressed(KeyCode::Down) || is_key_pressed(KeyCode::S) {
+            if self.inv_cursor + 1 < total {
+                self.inv_cursor += 1;
+            }
+        }
+
+        // Space: equip/unequip/swap
+        if is_key_pressed(KeyCode::Space) {
+            match self.inv_cursor {
+                0 => {
+                    // Unequip main weapon → cargo
+                    if self.player.loadout.main.is_some() && self.cargo.len() < MAX_CARGO {
+                        if let Some(w) = self.player.loadout.unequip_weapon(WeaponSlot::Main) {
+                            self.cargo.push(Item::Weapon(w));
+                        }
+                    }
+                }
+                1 => {
+                    // Unequip aux weapon → cargo
+                    if self.player.loadout.aux.is_some() && self.cargo.len() < MAX_CARGO {
+                        if let Some(w) = self.player.loadout.unequip_weapon(WeaponSlot::Aux) {
+                            self.cargo.push(Item::Weapon(w));
+                        }
+                    }
+                }
+                2 => {
+                    // Unequip thruster → cargo
+                    if self.player.loadout.thruster.is_some() && self.cargo.len() < MAX_CARGO {
+                        if let Some(t) = self.player.loadout.unequip_thruster() {
+                            self.cargo.push(Item::Thruster(t));
+                        }
+                    }
+                }
+                idx => {
+                    // Equip from cargo (force-equip, displaced item goes back to cargo)
+                    let cargo_idx = idx - 3;
+                    if cargo_idx < self.cargo.len() {
+                        let item = self.cargo.remove(cargo_idx);
+                        match item {
+                            Item::Weapon(w) => {
+                                if let Some(old) = self.player.loadout.force_equip_weapon(w) {
+                                    self.cargo.insert(cargo_idx, Item::Weapon(old));
+                                }
+                            }
+                            Item::Thruster(t) => {
+                                if let Some(old) = self.player.loadout.force_equip_thruster(t) {
+                                    self.cargo.insert(cargo_idx, Item::Thruster(old));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // X or Delete: discard cargo item
+        if is_key_pressed(KeyCode::X) || is_key_pressed(KeyCode::Delete) {
+            if self.inv_cursor >= 3 {
+                let cargo_idx = self.inv_cursor - 3;
+                if cargo_idx < self.cargo.len() {
+                    let item = self.cargo.remove(cargo_idx);
+                    let msg = format!("DISCARDED {} {}", item.rarity().label(), item.name());
+                    self.pickup_notice = Some((msg, Color::new(0.5, 0.5, 0.5, 1.0), 2.0));
+                    // Clamp cursor
+                    let total = 3 + self.cargo.len();
+                    if self.inv_cursor >= total && self.inv_cursor > 0 {
+                        self.inv_cursor -= 1;
+                    }
+                }
+            }
+        }
+
+        // Close inventory
+        if is_key_pressed(KeyCode::Escape) {
+            self.show_inventory = false;
+        }
+    }
+
     fn respawn(&mut self) {
         self.dead = false;
         self.player_health = PLAYER_MAX_HEALTH;
@@ -390,7 +586,7 @@ impl Game {
         self.asteroid_iframes = 1.0; // brief invincibility on respawn
         self.projectiles.clear();
         self.enemies.clear();
-        // Keep credits and loadout — just reset position and health
+        // Keep credits, loadout, and cargo — just reset position and health
         self.player.pos = Vec2::ZERO;
         self.player.vel = Vec2::ZERO;
         self.world = World::new();
@@ -432,6 +628,9 @@ impl Game {
         self.draw_hud();
         if self.show_map {
             self.draw_map();
+        }
+        if self.show_inventory {
+            self.draw_inventory();
         }
         if self.planet_menu.is_some() {
             self.draw_planet_menu();
@@ -542,10 +741,12 @@ impl Game {
             }
         }
 
-        // Credits
+        // Credits + Cargo count
+        let cr_text = format!("CR {}  CARGO {}/{}", self.credits, self.cargo.len(), MAX_CARGO);
+        let cr_w = measure_text(&cr_text, None, fs as u16, 1.0).width;
         draw_text(
-            &format!("CR {}", self.credits),
-            screen_width() - 90.0,
+            &cr_text,
+            screen_width() - cr_w - pad,
             pad + fs,
             fs,
             GOLD,
@@ -582,7 +783,7 @@ impl Game {
         }
 
         draw_text(
-            "W/↑ Thrust  S/↓ Brake  A/D Rotate  C Stabilize  Space Main  Ctrl/Z Aux  E Interact  M Map",
+            "W/↑ Thrust  S/↓ Brake  A/D Rotate  C Stabilize  Space Main  Ctrl/Z Aux  E Interact  M Map  I Cargo",
             pad,
             screen_height() - pad,
             13.0,
@@ -648,6 +849,198 @@ impl Game {
                     t.stat_summary(),
                 )
             }),
+        );
+    }
+
+    fn draw_inventory(&self) {
+        let sw = screen_width();
+        let sh = screen_height();
+
+        // Full-screen dimmer
+        draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.05, 0.80));
+
+        // Panel
+        let pw = 500.0_f32;
+        let ph = 500.0_f32;
+        let px = sw * 0.5 - pw * 0.5;
+        let py = sh * 0.5 - ph * 0.5;
+        draw_rectangle(px, py, pw, ph, Color::new(0.04, 0.06, 0.18, 0.96));
+        draw_rectangle_lines(px, py, pw, ph, 1.5, Color::new(0.3, 0.5, 1.0, 0.55));
+
+        // Title
+        let title = format!("CARGO HOLD ({}/{})", self.cargo.len(), MAX_CARGO);
+        let fs_title = 24.0_f32;
+        let tw = measure_text(&title, None, fs_title as u16, 1.0).width;
+        draw_text(&title, sw * 0.5 - tw * 0.5, py + 32.0, fs_title, SKYBLUE);
+
+        // Divider
+        draw_line(
+            px + 20.0,
+            py + 44.0,
+            px + pw - 20.0,
+            py + 44.0,
+            0.7,
+            Color::new(0.3, 0.4, 0.6, 0.45),
+        );
+
+        let content_x = px + 24.0;
+        let mut y = py + 62.0;
+        let row_h = 22.0;
+
+        // ── Equipped section ────────────────────────────────────────────────
+        draw_text(
+            "EQUIPPED",
+            content_x,
+            y,
+            12.0,
+            Color::new(0.5, 0.6, 0.8, 0.7),
+        );
+        y += 6.0;
+
+        let equipped_slots: [(&str, Option<(&Rarity, String, String)>); 3] = [
+            (
+                "MAIN",
+                self.player.loadout.main.as_ref().map(|w| {
+                    (&w.rarity, w.name.clone(), w.stat_summary())
+                }),
+            ),
+            (
+                "AUX ",
+                self.player.loadout.aux.as_ref().map(|w| {
+                    (&w.rarity, w.name.clone(), w.stat_summary())
+                }),
+            ),
+            (
+                "THR ",
+                self.player.loadout.thruster.as_ref().map(|t| {
+                    (&t.rarity, "THRUSTER".to_string(), t.stat_summary())
+                }),
+            ),
+        ];
+
+        for (i, (label, item_info)) in equipped_slots.iter().enumerate() {
+            y += row_h;
+            let selected = self.inv_cursor == i;
+            if selected {
+                draw_rectangle(
+                    content_x - 4.0,
+                    y - 14.0,
+                    pw - 40.0,
+                    row_h - 2.0,
+                    Color::new(0.15, 0.2, 0.4, 0.6),
+                );
+            }
+            let label_color = if selected { WHITE } else { DARKGRAY };
+            draw_text(label, content_x, y, 14.0, label_color);
+            if let Some((rarity, name, stats)) = item_info {
+                let rc = rarity.color();
+                let tag = format!("[{}]", rarity.label());
+                draw_text(&tag, content_x + 42.0, y, 14.0, rc);
+                let tag_w = measure_text(&tag, None, 14, 1.0).width;
+                draw_text(
+                    &format!(" {} {}", name, stats),
+                    content_x + 42.0 + tag_w,
+                    y,
+                    12.0,
+                    Color::new(0.7, 0.7, 0.7, 1.0),
+                );
+            } else {
+                draw_text(
+                    "--- empty ---",
+                    content_x + 42.0,
+                    y,
+                    12.0,
+                    Color::new(0.3, 0.3, 0.3, 1.0),
+                );
+            }
+        }
+
+        // ── Cargo section ───────────────────────────────────────────────────
+        y += row_h + 8.0;
+        draw_line(
+            px + 20.0,
+            y - 6.0,
+            px + pw - 20.0,
+            y - 6.0,
+            0.5,
+            Color::new(0.3, 0.4, 0.6, 0.3),
+        );
+        draw_text(
+            "CARGO",
+            content_x,
+            y + 4.0,
+            12.0,
+            Color::new(0.5, 0.6, 0.8, 0.7),
+        );
+        y += 10.0;
+
+        if self.cargo.is_empty() {
+            y += row_h;
+            draw_text(
+                "Empty",
+                content_x + 42.0,
+                y,
+                12.0,
+                Color::new(0.3, 0.3, 0.3, 1.0),
+            );
+        } else {
+            // Scrollable area: show items that fit in remaining space
+            let max_visible = ((py + ph - 60.0 - y) / row_h) as usize;
+            let cargo_cursor = if self.inv_cursor >= 3 {
+                self.inv_cursor - 3
+            } else {
+                0
+            };
+            let scroll_start = if cargo_cursor >= max_visible {
+                cargo_cursor - max_visible + 1
+            } else {
+                0
+            };
+
+            for (ci, item) in self.cargo.iter().enumerate().skip(scroll_start) {
+                y += row_h;
+                if y > py + ph - 50.0 {
+                    break;
+                }
+                let list_idx = ci + 3;
+                let selected = self.inv_cursor == list_idx;
+                if selected {
+                    draw_rectangle(
+                        content_x - 4.0,
+                        y - 14.0,
+                        pw - 40.0,
+                        row_h - 2.0,
+                        Color::new(0.15, 0.2, 0.4, 0.6),
+                    );
+                }
+                let rc = item.rarity().color();
+                let slot = item.slot_label();
+                let tag = format!("[{}]", item.rarity().label());
+                let name = item.name();
+                let stats = item.stat_summary();
+                let label_color = if selected { WHITE } else { LIGHTGRAY };
+                draw_text(slot, content_x, y, 12.0, Color::new(0.4, 0.4, 0.5, 0.8));
+                draw_text(&tag, content_x + 42.0, y, 14.0, rc);
+                let tag_w = measure_text(&tag, None, 14, 1.0).width;
+                draw_text(
+                    &format!(" {} {}", name, stats),
+                    content_x + 42.0 + tag_w,
+                    y,
+                    12.0,
+                    label_color,
+                );
+            }
+        }
+
+        // Footer
+        let footer = "[I/Tab] Close   [W/S] Navigate   [SPACE] Equip/Unequip   [X] Discard";
+        let fw = measure_text(footer, None, 12, 1.0).width;
+        draw_text(
+            footer,
+            sw * 0.5 - fw * 0.5,
+            py + ph - 14.0,
+            12.0,
+            YELLOW,
         );
     }
 
@@ -820,9 +1213,9 @@ impl Game {
         // Full-screen dimmer
         draw_rectangle(0.0, 0.0, sw, sh, Color::new(0.0, 0.0, 0.08, 0.80));
 
-        // Panel — taller to fit missions
-        let pw = 440.0_f32;
-        let ph = 400.0_f32;
+        // Panel — taller to fit missions + shop
+        let pw = 480.0_f32;
+        let ph = 440.0_f32;
         let px = sw * 0.5 - pw * 0.5;
         let py = sh * 0.5 - ph * 0.5;
         draw_rectangle(px, py, pw, ph, Color::new(0.04, 0.06, 0.18, 0.96));
@@ -853,26 +1246,25 @@ impl Game {
         let tab_y = py + 88.0;
         let active_tab_color = WHITE;
         let inactive_tab_color = Color::new(0.4, 0.4, 0.5, 0.65);
-        let missions_color = if menu.tab == MenuTab::Missions {
-            active_tab_color
-        } else {
-            inactive_tab_color
+
+        let tab_color = |t: MenuTab| {
+            if menu.tab == t {
+                active_tab_color
+            } else {
+                inactive_tab_color
+            }
         };
-        let active_color = if menu.tab == MenuTab::Active {
-            active_tab_color
-        } else {
-            inactive_tab_color
-        };
-        draw_text("[1] AVAILABLE", px + 36.0, tab_y, 14.0, missions_color);
+        draw_text("[1] MISSIONS", px + 24.0, tab_y, 13.0, tab_color(MenuTab::Missions));
         let active_label = format!("[2] ACTIVE ({})", self.mission_log.active.len());
-        draw_text(&active_label, px + 180.0, tab_y, 14.0, active_color);
+        draw_text(&active_label, px + 145.0, tab_y, 13.0, tab_color(MenuTab::Active));
+        draw_text("[3] SHOP", px + 300.0, tab_y, 13.0, tab_color(MenuTab::Shop));
 
         // Underline active tab
         let ul_y = tab_y + 4.0;
-        if menu.tab == MenuTab::Missions {
-            draw_line(px + 36.0, ul_y, px + 155.0, ul_y, 1.0, SKYBLUE);
-        } else {
-            draw_line(px + 180.0, ul_y, px + 330.0, ul_y, 1.0, SKYBLUE);
+        match menu.tab {
+            MenuTab::Missions => draw_line(px + 24.0, ul_y, px + 130.0, ul_y, 1.0, SKYBLUE),
+            MenuTab::Active => draw_line(px + 145.0, ul_y, px + 285.0, ul_y, 1.0, SKYBLUE),
+            MenuTab::Shop => draw_line(px + 300.0, ul_y, px + 380.0, ul_y, 1.0, SKYBLUE),
         }
 
         // Content area
@@ -1038,10 +1430,13 @@ impl Game {
                     }
                 }
             }
+            MenuTab::Shop => {
+                self.draw_shop_tab(menu, content_x, content_y, px, py, pw, ph);
+            }
         }
 
         // Footer
-        let footer = "[E]  Depart       [W/S] Navigate";
+        let footer = "[E] Depart    [W/S] Navigate    [1/2/3] Tabs";
         let fs_foot = 13.0_f32;
         let ftw = measure_text(footer, None, fs_foot as u16, 1.0).width;
         draw_text(
@@ -1050,6 +1445,188 @@ impl Game {
             py + ph - 14.0,
             fs_foot,
             YELLOW,
+        );
+    }
+
+    fn draw_shop_tab(
+        &self,
+        menu: &PlanetMenu,
+        content_x: f32,
+        content_y: f32,
+        px: f32,
+        py: f32,
+        pw: f32,
+        ph: f32,
+    ) {
+        let sw = screen_width();
+        let row_h = 26.0;
+        let shop_len = menu.shop_stock.len();
+        let mut y = content_y;
+
+        // ── FOR SALE section ────────────────────────────────────────────────
+        draw_text(
+            "FOR SALE",
+            content_x,
+            y,
+            12.0,
+            Color::new(0.5, 0.6, 0.8, 0.7),
+        );
+        y += 4.0;
+
+        if menu.shop_stock.is_empty() {
+            y += row_h;
+            draw_text(
+                "Sold out.",
+                content_x,
+                y,
+                13.0,
+                Color::new(0.4, 0.4, 0.5, 0.7),
+            );
+            y += 6.0;
+        } else {
+            for (i, item) in menu.shop_stock.iter().enumerate() {
+                y += row_h;
+                let selected = menu.selected == i;
+                if selected {
+                    draw_rectangle(
+                        content_x - 6.0,
+                        y - 14.0,
+                        pw - 60.0,
+                        row_h - 2.0,
+                        Color::new(0.15, 0.2, 0.4, 0.5),
+                    );
+                }
+                let rc = item.rarity().color();
+                let slot = item.slot_label();
+                let tag = format!("[{}]", item.rarity().label());
+                let name = item.name();
+                let stats = item.stat_summary();
+                let label_color = if selected { WHITE } else { LIGHTGRAY };
+
+                draw_text(slot, content_x, y, 11.0, Color::new(0.4, 0.4, 0.5, 0.8));
+                draw_text(&tag, content_x + 40.0, y, 13.0, rc);
+                let tag_w = measure_text(&tag, None, 13, 1.0).width;
+                draw_text(
+                    &format!(" {} {}", name, stats),
+                    content_x + 40.0 + tag_w,
+                    y,
+                    11.0,
+                    label_color,
+                );
+
+                // Price (right-aligned)
+                let price_str = format!("{} CR", item.buy_price());
+                let price_w = measure_text(&price_str, None, 12, 1.0).width;
+                let can_afford = self.credits >= item.buy_price();
+                let price_color = if can_afford {
+                    GOLD
+                } else {
+                    Color::new(0.7, 0.3, 0.3, 0.85)
+                };
+                draw_text(
+                    &price_str,
+                    px + pw - 36.0 - price_w,
+                    y,
+                    12.0,
+                    price_color,
+                );
+            }
+        }
+
+        // ── YOUR CARGO section ──────────────────────────────────────────────
+        y += row_h + 4.0;
+        draw_line(
+            px + 20.0,
+            y - 10.0,
+            px + pw - 20.0,
+            y - 10.0,
+            0.5,
+            Color::new(0.3, 0.4, 0.6, 0.3),
+        );
+        let cargo_header = format!("YOUR CARGO ({}/{})", self.cargo.len(), MAX_CARGO);
+        draw_text(
+            &cargo_header,
+            content_x,
+            y,
+            12.0,
+            Color::new(0.5, 0.6, 0.8, 0.7),
+        );
+        y += 4.0;
+
+        if self.cargo.is_empty() {
+            y += row_h;
+            draw_text(
+                "Empty",
+                content_x,
+                y,
+                13.0,
+                Color::new(0.4, 0.4, 0.5, 0.7),
+            );
+        } else {
+            for (ci, item) in self.cargo.iter().enumerate() {
+                y += row_h;
+                if y > py + ph - 56.0 {
+                    break;
+                }
+                let list_idx = shop_len + ci;
+                let selected = menu.selected == list_idx;
+                if selected {
+                    draw_rectangle(
+                        content_x - 6.0,
+                        y - 14.0,
+                        pw - 60.0,
+                        row_h - 2.0,
+                        Color::new(0.2, 0.15, 0.1, 0.5),
+                    );
+                }
+                let rc = item.rarity().color();
+                let slot = item.slot_label();
+                let tag = format!("[{}]", item.rarity().label());
+                let name = item.name();
+                let stats = item.stat_summary();
+                let label_color = if selected { WHITE } else { LIGHTGRAY };
+
+                draw_text(slot, content_x, y, 11.0, Color::new(0.4, 0.4, 0.5, 0.8));
+                draw_text(&tag, content_x + 40.0, y, 13.0, rc);
+                let tag_w = measure_text(&tag, None, 13, 1.0).width;
+                draw_text(
+                    &format!(" {} {}", name, stats),
+                    content_x + 40.0 + tag_w,
+                    y,
+                    11.0,
+                    label_color,
+                );
+
+                // Sell price (right-aligned)
+                let sell_str = format!("+{} CR", item.sell_price());
+                let sell_w = measure_text(&sell_str, None, 12, 1.0).width;
+                draw_text(
+                    &sell_str,
+                    px + pw - 36.0 - sell_w,
+                    y,
+                    12.0,
+                    Color::new(0.2, 0.8, 0.3, 0.9),
+                );
+            }
+        }
+
+        // Action prompt
+        let prompt = if menu.selected < shop_len {
+            if self.cargo.len() >= MAX_CARGO {
+                "[SPACE] BUY (cargo full!)".to_string()
+            } else {
+                "[SPACE] BUY".to_string()
+            }
+        } else {
+            "[SPACE] SELL".to_string()
+        };
+        let prompt_w = measure_text(&prompt, None, 13, 1.0).width;
+        draw_text(
+            &prompt,
+            sw * 0.5 - prompt_w * 0.5,
+            py + ph - 38.0,
+            13.0,
+            Color::new(0.6, 0.8, 1.0, 0.85),
         );
     }
 
