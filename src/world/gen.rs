@@ -272,22 +272,34 @@ fn gen_enemy_spawns(
     // No enemies near planets; derelicts are extra dangerous
     let count = match chunk_type {
         ChunkType::HasPlanet => return vec![],
-        ChunkType::Derelict => (rng.range_f32(2.0, 5.0)) as usize,
+        ChunkType::Derelict => (rng.range_f32(6.0, 12.0)) as usize,
         _ => {
             if hostility < 0.2 {
                 return vec![];
             }
-            (hostility * 4.0 + rng.range_f32(-1.0, 1.0)).max(0.0) as usize
+            (hostility * 10.0 + rng.range_f32(-1.0, 2.0)).max(0.0) as usize
         }
     };
 
-    (0..count)
+    // Pick 1-3 cluster centers within the chunk interior, then scatter enemies
+    // within a tight radius around each center for a pack feel.
+    let cluster_count = rng.range_usize(3).max(1); // 1-3 clusters
+    let clusters: Vec<Vec2> = (0..cluster_count)
         .map(|_| {
-            let pos = origin
+            origin
                 + Vec2::new(
-                    rng.range_f32(150.0, CHUNK_SIZE - 150.0),
-                    rng.range_f32(150.0, CHUNK_SIZE - 150.0),
-                );
+                    rng.range_f32(300.0, CHUNK_SIZE - 300.0),
+                    rng.range_f32(300.0, CHUNK_SIZE - 300.0),
+                )
+        })
+        .collect();
+
+    (0..count)
+        .map(|i| {
+            let center = clusters[i % cluster_count];
+            let angle = rng.range_f32(0.0, std::f32::consts::TAU);
+            let radius = rng.range_f32(0.0, 220.0);
+            let pos = center + Vec2::new(angle.cos() * radius, angle.sin() * radius);
             let archetype = match rng.range_usize(3) {
                 0 => EnemyArchetype::Tank,
                 1 => EnemyArchetype::Agile,
