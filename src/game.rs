@@ -227,7 +227,7 @@ impl Game {
                             if self.credits >= price && self.cargo.len() < MAX_CARGO {
                                 let item = menu.shop_stock.remove(menu.selected);
                                 let msg = format!(
-                                    "BOUGHT {} {} (-{} CR)",
+                                    "BOUGHT {} {} (-{} CR) → CARGO [I to equip]",
                                     item.rarity().label(),
                                     item.name(),
                                     price
