@@ -155,23 +155,21 @@ impl Player {
         draw_triangle(tip, left_wing, right_wing, WHITE);
         draw_triangle_lines(tip, left_wing, right_wing, 1.0, LIGHTGRAY);
 
+        // Thruster color: per-item procedural color, or defaults when unequipped
+        let thruster_color = self.loadout.thruster.as_ref()
+            .map(|t| t.color)
+            .unwrap_or(YELLOW);
+
         if self.is_thrusting {
             let exhaust = self.pos - forward * (size * 0.55);
-            // Tint exhaust by thruster rarity if equipped
-            let (inner, outer) = if let Some(ref t) = self.loadout.thruster {
-                let rc = t.rarity.color();
-                (Color::new(rc.r, rc.g, rc.b, 0.9), ORANGE)
-            } else {
-                (YELLOW, ORANGE)
-            };
-            draw_circle(exhaust.x, exhaust.y, 5.0, outer);
-            draw_circle(exhaust.x, exhaust.y, 3.0, inner);
+            draw_circle(exhaust.x, exhaust.y, 5.0, ORANGE);
+            draw_circle(exhaust.x, exhaust.y, 3.0, Color::new(thruster_color.r, thruster_color.g, thruster_color.b, 0.9));
         }
 
         if self.is_braking {
             let exhaust = self.pos + forward * (size * 0.85);
             draw_circle(exhaust.x, exhaust.y, 3.0, ORANGE);
-            draw_circle(exhaust.x, exhaust.y, 1.8, YELLOW);
+            draw_circle(exhaust.x, exhaust.y, 1.8, Color::new(thruster_color.r, thruster_color.g, thruster_color.b, 0.9));
         }
 
         if self.is_stabilizing {
@@ -181,8 +179,8 @@ impl Player {
                 let angle = (i as f32) * std::f32::consts::TAU / 8.0;
                 let dir = Vec2::new(angle.sin(), -angle.cos());
                 let puff = self.pos + dir * ring_r;
-                draw_circle(puff.x, puff.y, 4.0, Color::new(0.4, 0.8, 1.0, 0.55));
-                draw_circle(puff.x, puff.y, 2.0, Color::new(0.9, 1.0, 1.0, 0.85));
+                draw_circle(puff.x, puff.y, 4.0, Color::new(thruster_color.r, thruster_color.g, thruster_color.b, 0.55));
+                draw_circle(puff.x, puff.y, 2.0, Color::new(thruster_color.r, thruster_color.g, thruster_color.b, 0.85));
             }
         }
     }

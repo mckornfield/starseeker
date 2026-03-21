@@ -114,6 +114,7 @@ mod tests {
             rarity,
             speed_mult: 1.0,
             accel_mult: 1.0,
+            color: WHITE,
         }
     }
 
