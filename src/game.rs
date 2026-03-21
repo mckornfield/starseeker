@@ -54,6 +54,7 @@ pub(crate) struct Game {
     planet_menu: Option<PlanetMenu>,
     show_map: bool,
     show_inventory: bool,
+    show_quests: bool,
     inv_cursor: usize,
     prev_interact: bool,
 }
@@ -89,6 +90,7 @@ impl Game {
             planet_menu: None,
             show_map: false,
             show_inventory: false,
+            show_quests: false,
             inv_cursor: 0,
             prev_interact: false,
         }
@@ -122,14 +124,18 @@ impl Game {
         let touch = self.mobile.update(near_planet);
         let input = kb.merge(&touch);
 
-        // ── Inventory toggle (I or Tab) ─────────────────────────────────────
-        if (is_key_pressed(KeyCode::I) || is_key_pressed(KeyCode::Tab))
-            && self.planet_menu.is_none() {
-                self.show_inventory = !self.show_inventory;
-                if self.show_inventory {
-                    self.inv_cursor = 0;
-                }
+        // ── Inventory toggle (I / Tab / mobile INV) ─────────────────────────
+        if input.toggle_inventory && self.planet_menu.is_none() {
+            self.show_inventory = !self.show_inventory;
+            if self.show_inventory {
+                self.inv_cursor = 0;
             }
+        }
+
+        // ── Quest log toggle (Q / mobile QST) ───────────────────────────────
+        if input.toggle_quests {
+            self.show_quests = !self.show_quests;
+        }
 
         // ── Inventory input & pause ─────────────────────────────────────────
         if self.show_inventory {
@@ -269,8 +275,8 @@ impl Game {
             return;
         }
 
-        // ── Map toggle ───────────────────────────────────────────────────────
-        if is_key_pressed(KeyCode::M) {
+        // ── Map toggle (M / mobile MAP) ──────────────────────────────────────
+        if input.toggle_map {
             self.show_map = !self.show_map;
         }
 
@@ -663,6 +669,9 @@ impl Game {
         }
         if self.show_inventory {
             self.draw_inventory();
+        }
+        if self.show_quests {
+            self.draw_quests();
         }
         if self.planet_menu.is_some() {
             self.draw_planet_menu();
@@ -1070,6 +1079,93 @@ impl Game {
             12.0,
             YELLOW,
         );
+    }
+
+    fn draw_quests(&self) {
+        let sw = screen_width();
+        let sh = screen_height();
+        let ow = sw * 0.68;
+        let oh = sh * 0.75;
+        let ox = (sw - ow) * 0.5;
+        let oy = (sh - oh) * 0.5;
+
+        draw_rectangle(ox, oy, ow, oh, Color::new(0.0, 0.02, 0.12, 0.92));
+        draw_rectangle_lines(ox, oy, ow, oh, 1.5, Color::new(0.35, 0.5, 0.9, 0.5));
+        draw_text("ACTIVE MISSIONS", ox + 16.0, oy + 28.0, 20.0, SKYBLUE);
+        draw_text(
+            "[Q] to close",
+            ox + ow - 110.0,
+            oy + 28.0,
+            12.0,
+            Color::new(0.5, 0.5, 0.6, 0.7),
+        );
+
+        if self.mission_log.active.is_empty() {
+            draw_text(
+                "No active missions — visit a planet to pick one up.",
+                ox + 16.0,
+                oy + 65.0,
+                15.0,
+                GRAY,
+            );
+            return;
+        }
+
+        let mut y = oy + 50.0;
+        for m in &self.mission_log.active {
+            y += 20.0;
+            let complete = m.objective.is_complete();
+            let title_col = if complete {
+                Color::new(0.2, 0.9, 0.3, 1.0)
+            } else {
+                LIGHTGRAY
+            };
+            draw_text(&m.title, ox + 16.0, y, 16.0, title_col);
+            draw_text(
+                &format!("{} CR", m.reward_credits),
+                ox + ow - 90.0,
+                y,
+                14.0,
+                GOLD,
+            );
+            y += 14.0;
+            draw_text(
+                &m.briefing,
+                ox + 22.0,
+                y,
+                12.0,
+                Color::new(0.7, 0.7, 0.75, 0.8),
+            );
+            y += 14.0;
+            // Progress bar
+            let pw = ow - 44.0;
+            let frac = m.objective.progress_frac().clamp(0.0, 1.0);
+            draw_rectangle(ox + 22.0, y, pw, 5.0, Color::new(0.15, 0.15, 0.25, 1.0));
+            let bar_col = if complete {
+                Color::new(0.2, 0.9, 0.3, 1.0)
+            } else {
+                Color::new(0.3, 0.5, 1.0, 1.0)
+            };
+            draw_rectangle(ox + 22.0, y, pw * frac, 5.0, bar_col);
+            y += 9.0;
+            draw_text(
+                &m.objective.progress_text(),
+                ox + 22.0,
+                y,
+                11.0,
+                Color::new(0.55, 0.6, 0.7, 0.9),
+            );
+            y += 12.0;
+            // Divider
+            draw_line(
+                ox + 16.0,
+                y,
+                ox + ow - 16.0,
+                y,
+                0.5,
+                Color::new(0.3, 0.35, 0.5, 0.4),
+            );
+        }
     }
 
     fn draw_map(&self) {
