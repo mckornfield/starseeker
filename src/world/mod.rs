@@ -36,8 +36,29 @@ impl World {
             self.unload_distant();
         }
 
+        // Collect all planet positions + radii for gravity pass
+        let planets: Vec<(Vec2, f32)> = self
+            .chunks
+            .values()
+            .filter_map(|c| c.planet.as_ref().map(|p| (p.pos, p.radius)))
+            .collect();
+
         for chunk in self.chunks.values_mut() {
             chunk.update(dt);
+            // Apply planet gravity to each asteroid
+            if !planets.is_empty() {
+                for asteroid in &mut chunk.asteroids {
+                    for &(planet_pos, planet_radius) in &planets {
+                        let to_planet = planet_pos - asteroid.pos;
+                        let dist = to_planet.length();
+                        // Only pull within range; avoid singularity inside planet
+                        if dist < 1400.0 && dist > planet_radius {
+                            let acc = 4_000.0 * planet_radius / (dist * dist);
+                            asteroid.vel += to_planet.normalize() * acc * dt;
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -80,13 +101,21 @@ impl World {
                 if a.base_radius > 18.0 {
                     let child_radius = a.base_radius * 0.45;
                     let count = if a.base_radius > 40.0 { 3 } else { 2 };
+                    // Explosion speed scales with parent size
+                    let blast_speed = 40.0 + a.base_radius * 1.5;
                     for i in 0..count {
                         let angle = i as f32 * std::f32::consts::TAU / count as f32
                             + quad_rand::gen_range(0.0_f32, 1.0);
-                        let offset = Vec2::new(angle.cos(), angle.sin()) * a.base_radius * 0.6;
-                        chunk
-                            .asteroids
-                            .push(Asteroid::new_fragment(a.pos + offset, child_radius, a.color));
+                        let dir = Vec2::new(angle.cos(), angle.sin());
+                        let offset = dir * a.base_radius * 0.6;
+                        // Outward velocity + inherit parent drift
+                        let frag_vel = a.vel + dir * blast_speed;
+                        chunk.asteroids.push(Asteroid::new_fragment(
+                            a.pos + offset,
+                            child_radius,
+                            a.color,
+                            frag_vel,
+                        ));
                     }
                 }
                 return Some(info);

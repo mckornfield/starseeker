@@ -2,6 +2,7 @@ use macroquad::prelude::*;
 
 pub(crate) struct Asteroid {
     pub pos: Vec2,
+    pub vel: Vec2,
     pub base_radius: f32,
     pub rotation: f32,
     pub rot_speed: f32,
@@ -13,8 +14,8 @@ pub(crate) struct Asteroid {
 }
 
 impl Asteroid {
-    /// Create a smaller fragment asteroid at a given position.
-    pub fn new_fragment(pos: Vec2, base_radius: f32, color: Color) -> Self {
+    /// Create a smaller fragment asteroid at a given position with an outward velocity.
+    pub fn new_fragment(pos: Vec2, base_radius: f32, color: Color, vel: Vec2) -> Self {
         let n_verts = 6;
         let mut vertex_angles = Vec::with_capacity(n_verts);
         let mut vertex_radii = Vec::with_capacity(n_verts);
@@ -25,9 +26,10 @@ impl Asteroid {
         }
         Self {
             pos,
+            vel,
             base_radius,
             rotation: quad_rand::gen_range(0.0_f32, std::f32::consts::TAU),
-            rot_speed: quad_rand::gen_range(-0.8_f32, 0.8),
+            rot_speed: quad_rand::gen_range(-1.2_f32, 1.2),
             vertex_angles,
             vertex_radii,
             color,
@@ -36,6 +38,9 @@ impl Asteroid {
 
     pub fn update(&mut self, dt: f32) {
         self.rotation += self.rot_speed * dt;
+        self.pos += self.vel * dt;
+        // Very gentle drag so fragments don't drift forever
+        self.vel *= 0.998_f32.powf(dt * 60.0);
     }
 
     pub fn draw(&self) {

@@ -202,8 +202,14 @@ fn gen_asteroid(rng: &mut ChunkRng, origin: Vec2) -> Asteroid {
         1.0,
     );
 
+    // Gentle ambient drift — asteroids slowly wander
+    let drift_speed = rng.range_f32(3.0, 18.0);
+    let drift_angle = rng.range_f32(0.0, std::f32::consts::TAU);
+    let vel = Vec2::new(drift_angle.cos() * drift_speed, drift_angle.sin() * drift_speed);
+
     Asteroid {
         pos,
+        vel,
         base_radius,
         rotation,
         rot_speed,
