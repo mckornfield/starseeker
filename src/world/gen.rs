@@ -291,7 +291,8 @@ fn gen_enemy_spawns(
             let archetype = match rng.range_usize(3) {
                 0 => EnemyArchetype::Tank,
                 1 => EnemyArchetype::Agile,
-                _ => EnemyArchetype::Ranged,
+                2 => EnemyArchetype::Ranged,
+                _ => unreachable!("range_usize(3) only yields 0, 1, or 2"),
             };
             (pos, archetype)
         })

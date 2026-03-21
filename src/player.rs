@@ -86,7 +86,7 @@ impl Player {
         }
 
         self.vel *= DRAG;
-        if self.vel.length() > max_speed {
+        if self.speed() > max_speed {
             self.vel = self.vel.normalize() * max_speed;
         }
 
@@ -136,6 +136,10 @@ impl Player {
         }
     }
 
+    pub fn speed(&self) -> f32 {
+        self.vel.length()
+    }
+
     pub fn draw(&self) {
         let size = 16.0;
         let forward = Vec2::new(self.rotation.sin(), -self.rotation.cos());
@@ -178,5 +182,127 @@ impl Player {
                 draw_circle(puff.x, puff.y, 2.0, Color::new(0.9, 1.0, 1.0, 0.85));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::input::InputState;
+
+    fn no_input() -> InputState {
+        InputState::default()
+    }
+
+    fn input_with(f: impl Fn(&mut InputState)) -> InputState {
+        let mut i = InputState::default();
+        f(&mut i);
+        i
+    }
+
+    #[test]
+    fn new_player_starts_at_rest() {
+        let p = Player::new(Vec2::new(100.0, 200.0));
+        assert_eq!(p.pos, Vec2::new(100.0, 200.0));
+        assert_eq!(p.vel, Vec2::ZERO);
+        assert_eq!(p.rotation, 0.0);
+        assert!(!p.is_thrusting);
+        assert!(!p.is_braking);
+        assert!(!p.is_stabilizing);
+    }
+
+    #[test]
+    fn rotate_left_decreases_rotation() {
+        let mut p = Player::new(Vec2::ZERO);
+        let input = input_with(|i| i.rotate_left = true);
+        p.update(0.1, &input, &mut vec![]);
+        assert!(p.rotation < 0.0, "expected rotation < 0, got {}", p.rotation);
+    }
+
+    #[test]
+    fn rotate_right_increases_rotation() {
+        let mut p = Player::new(Vec2::ZERO);
+        let input = input_with(|i| i.rotate_right = true);
+        p.update(0.1, &input, &mut vec![]);
+        assert!(p.rotation > 0.0, "expected rotation > 0, got {}", p.rotation);
+    }
+
+    #[test]
+    fn thrust_increases_speed() {
+        let mut p = Player::new(Vec2::ZERO);
+        let input = input_with(|i| i.thrust = true);
+        p.update(0.1, &input, &mut vec![]);
+        assert!(p.speed() > 0.0, "thrust should accelerate the player");
+        assert!(p.is_thrusting);
+    }
+
+    #[test]
+    fn drag_slows_player_over_time() {
+        let mut p = Player::new(Vec2::ZERO);
+        p.vel = Vec2::new(100.0, 0.0);
+        let initial_speed = p.speed();
+        p.update(0.1, &no_input(), &mut vec![]);
+        assert!(p.speed() < initial_speed, "drag should reduce speed each frame");
+    }
+
+    #[test]
+    fn stabilize_damps_velocity_toward_zero() {
+        let mut p = Player::new(Vec2::ZERO);
+        p.vel = Vec2::new(200.0, 0.0);
+        let input = input_with(|i| i.stabilize = true);
+        p.update(0.1, &input, &mut vec![]);
+        assert!(p.speed() < 200.0, "stabilize should reduce speed");
+        assert!(p.is_stabilizing);
+    }
+
+    #[test]
+    fn stabilize_does_not_set_flag_when_nearly_stopped() {
+        let mut p = Player::new(Vec2::ZERO);
+        p.vel = Vec2::new(0.5, 0.0); // below the length_squared > 1.0 threshold
+        let input = input_with(|i| i.stabilize = true);
+        p.update(0.016, &input, &mut vec![]);
+        assert!(!p.is_stabilizing, "stabilize flag should be false when nearly stopped");
+    }
+
+    #[test]
+    fn speed_clamped_to_max() {
+        let mut p = Player::new(Vec2::ZERO);
+        // Apply many frames of thrust to try to exceed max speed
+        let input = input_with(|i| i.thrust = true);
+        for _ in 0..200 {
+            p.update(0.1, &input, &mut vec![]);
+        }
+        assert!(p.speed() <= BASE_MAX_SPEED + 1.0, "speed should not exceed max: {}", p.speed());
+    }
+
+    #[test]
+    fn firing_main_weapon_spawns_projectiles() {
+        let mut p = Player::new(Vec2::ZERO);
+        let mut projectiles = vec![];
+        let input = input_with(|i| i.fire_main = true);
+        p.update(0.016, &input, &mut projectiles);
+        assert!(!projectiles.is_empty(), "main weapon should spawn at least one projectile");
+        assert!(projectiles.iter().all(|pr| pr.owner == crate::projectile::Owner::Player));
+    }
+
+    #[test]
+    fn main_weapon_cooldown_prevents_rapid_fire() {
+        let mut p = Player::new(Vec2::ZERO);
+        let mut projectiles = vec![];
+        let input = input_with(|i| i.fire_main = true);
+        p.update(0.016, &input, &mut projectiles);
+        let after_first = projectiles.len();
+        // Fire again immediately — cooldown should block it
+        p.update(0.001, &input, &mut projectiles);
+        assert_eq!(projectiles.len(), after_first, "cooldown should block rapid re-fire");
+    }
+
+    #[test]
+    fn position_updates_with_velocity() {
+        let mut p = Player::new(Vec2::ZERO);
+        p.vel = Vec2::new(100.0, 0.0);
+        p.update(1.0, &no_input(), &mut vec![]);
+        // With drag applied, pos should be close to 100 * DRAG
+        assert!(p.pos.x > 90.0 && p.pos.x < 110.0, "pos.x should be ~100, got {}", p.pos.x);
     }
 }
