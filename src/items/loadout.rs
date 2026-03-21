@@ -18,7 +18,6 @@ impl Loadout {
     /// Equip weapon if slot is empty or new item has equal/higher rarity.
     /// On success: returns Ok((name, rarity, displaced_weapon)).
     /// On failure: returns Err(weapon) so it can be stashed.
-    #[must_use]
     pub fn try_equip_weapon(
         &mut self,
         w: WeaponItem,
@@ -41,7 +40,6 @@ impl Loadout {
     /// Equip thruster if slot is empty or new item has equal/higher rarity.
     /// On success: returns Ok((rarity, displaced_thruster)).
     /// On failure: returns Err(thruster) so it can be stashed.
-    #[must_use]
     pub fn try_equip_thruster(
         &mut self,
         t: ThrusterItem,

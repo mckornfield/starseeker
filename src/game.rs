@@ -9,6 +9,9 @@ use crate::projectile::{Owner, Projectile};
 use crate::world::World;
 use macroquad::prelude::*;
 
+/// Slot label, optional (rarity, name, stat summary) for loadout display
+type LoadoutSlotDisplay<'a> = (&'a str, Option<(&'a Rarity, String, String)>);
+
 const PLAYER_RADIUS: f32 = 12.0;
 const PLAYER_MAX_HEALTH: f32 = 100.0;
 /// Invincibility window after an asteroid hit so one collision doesn't insta-kill
@@ -120,14 +123,13 @@ impl Game {
         let input = kb.merge(&touch);
 
         // ── Inventory toggle (I or Tab) ─────────────────────────────────────
-        if is_key_pressed(KeyCode::I) || is_key_pressed(KeyCode::Tab) {
-            if self.planet_menu.is_none() {
+        if (is_key_pressed(KeyCode::I) || is_key_pressed(KeyCode::Tab))
+            && self.planet_menu.is_none() {
                 self.show_inventory = !self.show_inventory;
                 if self.show_inventory {
                     self.inv_cursor = 0;
                 }
             }
-        }
 
         // ── Inventory input & pause ─────────────────────────────────────────
         if self.show_inventory {
@@ -185,16 +187,14 @@ impl Game {
                 MenuTab::Active => self.mission_log.active.len(),
                 MenuTab::Shop => menu.shop_stock.len() + self.cargo.len(),
             };
-            if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::W) {
-                if menu.selected > 0 {
+            if (is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::W))
+                && menu.selected > 0 {
                     menu.selected -= 1;
                 }
-            }
-            if is_key_pressed(KeyCode::Down) || is_key_pressed(KeyCode::S) {
-                if menu.selected + 1 < list_len {
+            if (is_key_pressed(KeyCode::Down) || is_key_pressed(KeyCode::S))
+                && menu.selected + 1 < list_len {
                     menu.selected += 1;
                 }
-            }
 
             // Accept mission / Claim reward / Buy / Sell with Space
             if is_key_pressed(KeyCode::Space) {
@@ -496,16 +496,14 @@ impl Game {
         // Total list: 3 equipment slots + cargo items
         let total = 3 + self.cargo.len();
 
-        if is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::W) {
-            if self.inv_cursor > 0 {
+        if (is_key_pressed(KeyCode::Up) || is_key_pressed(KeyCode::W))
+            && self.inv_cursor > 0 {
                 self.inv_cursor -= 1;
             }
-        }
-        if is_key_pressed(KeyCode::Down) || is_key_pressed(KeyCode::S) {
-            if self.inv_cursor + 1 < total {
+        if (is_key_pressed(KeyCode::Down) || is_key_pressed(KeyCode::S))
+            && self.inv_cursor + 1 < total {
                 self.inv_cursor += 1;
             }
-        }
 
         // Space: equip/unequip/swap
         if is_key_pressed(KeyCode::Space) {
@@ -557,8 +555,8 @@ impl Game {
         }
 
         // X or Delete: discard cargo item
-        if is_key_pressed(KeyCode::X) || is_key_pressed(KeyCode::Delete) {
-            if self.inv_cursor >= 3 {
+        if (is_key_pressed(KeyCode::X) || is_key_pressed(KeyCode::Delete))
+            && self.inv_cursor >= 3 {
                 let cargo_idx = self.inv_cursor - 3;
                 if cargo_idx < self.cargo.len() {
                     let item = self.cargo.remove(cargo_idx);
@@ -571,7 +569,6 @@ impl Game {
                     }
                 }
             }
-        }
 
         // Close inventory
         if is_key_pressed(KeyCode::Escape) {
@@ -897,7 +894,7 @@ impl Game {
         );
         y += 6.0;
 
-        let equipped_slots: [(&str, Option<(&Rarity, String, String)>); 3] = [
+        let equipped_slots: [LoadoutSlotDisplay<'_>; 3] = [
             (
                 "MAIN",
                 self.player.loadout.main.as_ref().map(|w| {
@@ -986,11 +983,7 @@ impl Game {
         } else {
             // Scrollable area: show items that fit in remaining space
             let max_visible = ((py + ph - 60.0 - y) / row_h) as usize;
-            let cargo_cursor = if self.inv_cursor >= 3 {
-                self.inv_cursor - 3
-            } else {
-                0
-            };
+            let cargo_cursor = self.inv_cursor.saturating_sub(3);
             let scroll_start = if cargo_cursor >= max_visible {
                 cargo_cursor - max_visible + 1
             } else {
@@ -1448,6 +1441,7 @@ impl Game {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn draw_shop_tab(
         &self,
         menu: &PlanetMenu,
