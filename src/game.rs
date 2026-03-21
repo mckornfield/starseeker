@@ -375,7 +375,7 @@ impl Game {
         self.loot_drops.extend(drops);
         for _ in 0..kill_count {
             if let Some(msg) = self.mission_log.notify_kill() {
-                self.pickup_notice = Some((msg, GOLD, 3.0));
+                self.set_notice(msg, GOLD, 3.0);
             }
         }
 
@@ -424,7 +424,7 @@ impl Game {
                 LootKind::Credits(amt) => {
                     self.credits += amt;
                     if let Some(msg) = self.mission_log.notify_credits(amt) {
-                        self.pickup_notice = Some((msg, GOLD, 3.0));
+                        self.set_notice(msg, GOLD, 3.0);
                     }
                 }
                 LootKind::Weapon(w) => {
@@ -436,17 +436,17 @@ impl Game {
                         Ok((name, rarity, old)) => {
                             let msg =
                                 format!("EQUIPPED [{}] {} {}", slot_label, rarity.label(), name);
-                            self.pickup_notice = Some((msg, rarity.color(), 2.5));
+                            self.set_notice(msg, rarity.color(), 2.5);
                             // Stash displaced item in cargo
                             if let Some(old_w) = old {
                                 if self.cargo.len() < MAX_CARGO {
                                     self.cargo.push(Item::Weapon(old_w));
                                 } else {
-                                    self.pickup_notice = Some((
+                                    self.set_notice(
                                         format!("CARGO FULL — {} lost", old_w.name),
                                         Color::new(0.9, 0.4, 0.2, 1.0),
                                         2.5,
-                                    ));
+                                    );
                                 }
                             }
                         }
@@ -459,14 +459,14 @@ impl Game {
                                     w.rarity.label(),
                                     w.name
                                 );
-                                self.pickup_notice = Some((msg, w.rarity.color(), 2.0));
+                                self.set_notice(msg, w.rarity.color(), 2.0);
                                 self.cargo.push(Item::Weapon(w));
                             } else {
-                                self.pickup_notice = Some((
+                                self.set_notice(
                                     format!("CARGO FULL — {} lost", w.name),
                                     Color::new(0.9, 0.4, 0.2, 1.0),
                                     2.5,
-                                ));
+                                );
                             }
                         }
                     }
@@ -474,16 +474,16 @@ impl Game {
                 LootKind::Thruster(t) => match self.player.equip_thruster(t) {
                     Ok((rarity, old)) => {
                         let msg = format!("EQUIPPED [THR] {} THRUSTER", rarity.label());
-                        self.pickup_notice = Some((msg, rarity.color(), 2.5));
+                        self.set_notice(msg, rarity.color(), 2.5);
                         if let Some(old_t) = old {
                             if self.cargo.len() < MAX_CARGO {
                                 self.cargo.push(Item::Thruster(old_t));
                             } else {
-                                self.pickup_notice = Some((
+                                self.set_notice(
                                     format!("CARGO FULL — {} THRUSTER lost", old_t.rarity.label()),
                                     Color::new(0.9, 0.4, 0.2, 1.0),
                                     2.5,
-                                ));
+                                );
                             }
                         }
                     }
@@ -491,14 +491,14 @@ impl Game {
                         if self.cargo.len() < MAX_CARGO {
                             let msg =
                                 format!("STASHED [THR] {} THRUSTER", t.rarity.label());
-                            self.pickup_notice = Some((msg, t.rarity.color(), 2.0));
+                            self.set_notice(msg, t.rarity.color(), 2.0);
                             self.cargo.push(Item::Thruster(t));
                         } else {
-                            self.pickup_notice = Some((
+                            self.set_notice(
                                 format!("CARGO FULL — {} THRUSTER lost", t.rarity.label()),
                                 Color::new(0.9, 0.4, 0.2, 1.0),
                                 2.5,
-                            ));
+                            );
                         }
                     }
                 },
@@ -514,6 +514,17 @@ impl Game {
         let aspect = screen_width() / screen_height();
         self.camera.target = self.player.pos;
         self.camera.zoom = vec2(1.0 / (360.0 * aspect), 1.0 / 360.0);
+    }
+
+    /// Set pickup notice only if the new one has higher priority (longer duration).
+    /// Prevents low-priority credit/stash messages from overwriting mission completions
+    /// or equip notices when multiple loot drops are processed in the same frame.
+    fn set_notice(&mut self, msg: String, color: Color, duration: f32) {
+        match &self.pickup_notice {
+            None => self.pickup_notice = Some((msg, color, duration)),
+            Some((_, _, t)) if duration > *t => self.pickup_notice = Some((msg, color, duration)),
+            _ => {}
+        }
     }
 
     fn update_inventory(&mut self) {
