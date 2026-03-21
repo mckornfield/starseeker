@@ -161,15 +161,17 @@ impl MissionLog {
     /// Claim all completed missions. Returns total reward credits.
     pub fn claim_completed(&mut self) -> u32 {
         let mut total = 0;
+        let mut claimed = 0u32;
         self.active.retain(|m| {
             if m.objective.is_complete() {
                 total += m.reward_credits;
+                claimed += 1;
                 false
             } else {
                 true
             }
         });
-        self.completed_count += if total > 0 { 1 } else { 0 };
+        self.completed_count += claimed;
         total
     }
 }
