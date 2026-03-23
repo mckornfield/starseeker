@@ -216,6 +216,43 @@ impl World {
             .collect()
     }
 
+    /// Returns the gravitational acceleration at `pos` from nearby planets and asteroids.
+    pub fn gravity_at(&self, pos: Vec2) -> Vec2 {
+        let mut acc = Vec2::ZERO;
+
+        // Planet gravity (check all loaded planets)
+        for chunk in self.chunks.values() {
+            if let Some(planet) = &chunk.planet {
+                let to = planet.pos - pos;
+                let dist = to.length();
+                if dist < 1400.0 && dist > planet.radius {
+                    acc += to.normalize() * (4_000.0 * planet.radius / (dist * dist));
+                }
+            }
+        }
+
+        // Asteroid gravity (chunk-local only — check 3x3 neighborhood)
+        let coord = ChunkCoord::from_world_pos(pos);
+        for dx in -1i32..=1 {
+            for dy in -1i32..=1 {
+                if let Some(chunk) = self.chunks.get(&(coord.cx + dx, coord.cy + dy)) {
+                    for a in &chunk.asteroids {
+                        let to = a.pos - pos;
+                        let dist_sq = to.length_squared();
+                        let min_dist = a.base_radius + 10.0;
+                        // Only pull within 400 units; weaker than planets
+                        if dist_sq < 400.0 * 400.0 && dist_sq > min_dist * min_dist {
+                            let dist = dist_sq.sqrt();
+                            acc += to.normalize() * (80.0 * a.base_radius / (dist * dist));
+                        }
+                    }
+                }
+            }
+        }
+
+        acc
+    }
+
     fn unload_distant(&mut self) {
         let (pcx, pcy) = self.player_chunk;
         self.chunks

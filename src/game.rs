@@ -291,6 +291,14 @@ impl Game {
             self.enemies.push(Enemy::new(pos, archetype));
         }
 
+        // ── Gravity on player & enemies ────────────────────────────────────
+        let player_grav = self.world.gravity_at(self.player.pos);
+        self.player.vel += player_grav * dt;
+        for enemy in &mut self.enemies {
+            let grav = self.world.gravity_at(enemy.pos);
+            enemy.vel += grav * dt;
+        }
+
         // ── Projectiles ───────────────────────────────────────────────────────
         self.projectiles.retain_mut(|p| p.update(dt));
 
